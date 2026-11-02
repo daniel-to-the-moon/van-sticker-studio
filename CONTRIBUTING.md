@@ -6,7 +6,7 @@
 
 ```text
 发现/去重 → 有权者按生效决策表批准范围与验收 → Ready
-→ dot确认唯一claim、冻结spec/决策表、文件及语义锁
+→ 执行者发claim包自行核对唯一性（dot可否决）、冻结spec/决策表、文件及语义锁
 → accepted → running → 小分支实现/验证 → Draft PR
 → 完整证据 → 独立评审/所需复验 → dot按决策表决定合并
 → 无参与冲突的有权执行者以expected head合并 → 实际main SHA四门禁
