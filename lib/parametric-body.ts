@@ -150,6 +150,10 @@ export interface BodyConfig {
   wheelbaseClass: WheelbaseClass;
   /** Wheelbase, or hitch-to-axle distance for towable kinds. */
   wheelbaseMm: number;
+  /** Front overhang: nose to front axle (B-type trio slider). */
+  frontOverhangMm: number;
+  /** Rear overhang: rear axle to tail (B-type trio slider). */
+  rearOverhangMm: number;
   /** Overall length, or trailer body length for towable kinds. */
   lengthMm: number;
   widthMm: number;
@@ -361,6 +365,8 @@ function kindConfig(
     bodyType,
     wheelbaseClass: 'long',
     wheelbaseMm,
+    frontOverhangMm: (lengthMm - wheelbaseMm) / 2,
+    rearOverhangMm: (lengthMm - wheelbaseMm) / 2,
     lengthMm,
     widthMm,
     heightMm,
@@ -393,6 +399,8 @@ export const KIND_DEFAULTS: Record<VehicleKind, BodyConfig> = {
     vehicleKind: 'motorhome-b',
     wheelbaseClass: 'long',
     wheelbaseMm: WHEELBASE_PRESETS_MM.long,
+    frontOverhangMm: 1045,
+    rearOverhangMm: 1045,
     lengthMm: 5840,
     widthMm: 2220,
     heightMm: ROOF_CLOSED_HEIGHT_MM.high,
@@ -811,6 +819,106 @@ export function clampAccessoryPositions(config: BodyConfig): Accessory[] {
       ),
     };
   });
+}
+
+/**
+ * B-type chassis trio: the three sliders the body-lab panel offers for
+ * motorhome B (front overhang, wheelbase, rear overhang). Length is
+ * always the trio sum for these configs; registered rows satisfy the
+ * same identity (verified figures), and kind defaults use the symmetric
+ * split so demo geometry is unchanged.
+ */
+export interface ChassisTrio {
+  frontOverhangMm: number;
+  wheelbaseMm: number;
+  rearOverhangMm: number;
+}
+
+/** Sorted unique announced values per trio dimension. */
+export interface AnnouncedChassisPoints {
+  wheelbases: number[];
+  fronts: number[];
+  rears: number[];
+}
+
+export function trioOf(config: BodyConfig): ChassisTrio {
+  return {
+    frontOverhangMm: config.frontOverhangMm,
+    wheelbaseMm: config.wheelbaseMm,
+    rearOverhangMm: config.rearOverhangMm,
+  };
+}
+
+export function trioLengthMm(trio: ChassisTrio): number {
+  return (
+    trio.frontOverhangMm + trio.wheelbaseMm + trio.rearOverhangMm
+  );
+}
+
+/**
+ * Axle positions relative to the body centre (front is -X, matching
+ * the scene builders). Front axle sits one front overhang behind the
+ * nose; rear axle one rear overhang ahead of the tail.
+ */
+export function axlePositionsMm(
+  lengthMm: number,
+  trio: ChassisTrio,
+): { frontAxleMm: number; rearAxleMm: number } {
+  return {
+    frontAxleMm: -lengthMm / 2 + trio.frontOverhangMm,
+    rearAxleMm: lengthMm / 2 - trio.rearOverhangMm,
+  };
+}
+
+/**
+ * Nearest announced value; ties go to the smaller point so the snap is
+ * deterministic. An empty point set leaves the value untouched.
+ */
+export function snapToAnnounced(
+  value: number,
+  points: readonly number[],
+): number {
+  if (points.length === 0) return value;
+  const sorted = [...points].sort((a, b) => a - b);
+  let best = sorted[0];
+  for (const point of sorted) {
+    if (Math.abs(point - value) < Math.abs(best - value)) best = point;
+  }
+  return best;
+}
+
+/** Snap each trio dimension to its own announced point set. */
+export function snapChassisTrio(
+  trio: ChassisTrio,
+  points: AnnouncedChassisPoints,
+): ChassisTrio {
+  return {
+    frontOverhangMm: snapToAnnounced(trio.frontOverhangMm, points.fronts),
+    wheelbaseMm: snapToAnnounced(trio.wheelbaseMm, points.wheelbases),
+    rearOverhangMm: snapToAnnounced(trio.rearOverhangMm, points.rears),
+  };
+}
+
+/** Interpolate each trio dimension; t is clamped to [0, 1]. */
+export function lerpTrio(
+  from: ChassisTrio,
+  to: ChassisTrio,
+  t: number,
+): ChassisTrio {
+  const k = Math.min(1, Math.max(0, t));
+  return {
+    frontOverhangMm:
+      from.frontOverhangMm + (to.frontOverhangMm - from.frontOverhangMm) * k,
+    wheelbaseMm: from.wheelbaseMm + (to.wheelbaseMm - from.wheelbaseMm) * k,
+    rearOverhangMm:
+      from.rearOverhangMm + (to.rearOverhangMm - from.rearOverhangMm) * k,
+  };
+}
+
+/** Cubic ease-out for the trio glide (0 -> 0, 1 -> 1, monotonic). */
+export function easeOutCubic(t: number): number {
+  const k = Math.min(1, Math.max(0, t));
+  return 1 - Math.pow(1 - k, 3);
 }
 
 /**

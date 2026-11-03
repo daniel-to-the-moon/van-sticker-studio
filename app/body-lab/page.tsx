@@ -7,7 +7,12 @@ import { t, type Lang } from '@/lib/i18n';
 import {
   DEFAULT_BODY_CONFIG,
   checkBodyConstraints,
+  easeOutCubic,
+  lerpTrio,
+  trioLengthMm,
+  trioOf,
   type BodyConfig,
+  type ChassisTrio,
 } from '@/lib/parametric-body';
 import {
   BOUNCE_DURATION_MS,
@@ -25,6 +30,16 @@ import {
 export default function BodyLabPage() {
   const [lang, setLang] = useState<Lang>('zh');
   const [config, setConfig] = useState<BodyConfig>(DEFAULT_BODY_CONFIG);
+  /** Rendered config: follows the target, gliding the B trio on snaps. */
+  const [display, setDisplay] = useState<BodyConfig>(DEFAULT_BODY_CONFIG);
+  const configRef = useRef(config);
+  const displayRef = useRef(config);
+  const animRef = useRef<{
+    from: ChassisTrio;
+    to: ChassisTrio;
+    start: number;
+    dur: number;
+  } | null>(null);
   /**
    * Slice 5 registry gate: null is the demo view (prototype defaults,
    * not configurable); a registered model id drives the config from
@@ -36,12 +51,29 @@ export default function BodyLabPage() {
 
   const handleSelectModel = (modelId: string | null) => {
     setRegisteredModelId(modelId);
-    if (modelId === null) {
-      setConfig({ ...DEFAULT_BODY_CONFIG });
-      return;
+    const next =
+      modelId === null
+        ? { ...DEFAULT_BODY_CONFIG }
+        : configForRegisteredModel(modelId);
+    if (next === null) return;
+    const prev = displayRef.current;
+    configRef.current = next;
+    setConfig(next);
+    if (
+      prev.vehicleKind === 'motorhome-b' &&
+      next.vehicleKind === 'motorhome-b'
+    ) {
+      animRef.current = {
+        from: trioOf(prev),
+        to: trioOf(next),
+        start: performance.now(),
+        dur: 300,
+      };
+    } else {
+      animRef.current = null;
+      displayRef.current = next;
+      setDisplay(next);
     }
-    const next = configForRegisteredModel(modelId);
-    if (next !== null) setConfig(next);
   };
   const [popKey, setPopKey] = useState(0);
   const host = useRef<HTMLDivElement>(null);
@@ -56,6 +88,27 @@ export default function BodyLabPage() {
   const handleRelease = () => {
     bounceRef.current = performance.now();
     setPopKey((key) => key + 1);
+  };
+
+  /** Panel change (drag or button): cancel any glide, follow directly. */
+  const handleChange = (next: BodyConfig) => {
+    animRef.current = null;
+    configRef.current = next;
+    displayRef.current = next;
+    setConfig(next);
+    setDisplay(next);
+  };
+
+  /** Trio slider released on a snapped value: glide the params to it. */
+  const handleSnapRelease = (snapped: BodyConfig) => {
+    animRef.current = {
+      from: trioOf(displayRef.current),
+      to: trioOf(snapped),
+      start: performance.now(),
+      dur: 350,
+    };
+    configRef.current = snapped;
+    setConfig(snapped);
   };
 
   const results = useMemo(() => checkBodyConstraints(config), [config]);
@@ -97,6 +150,27 @@ export default function BodyLabPage() {
         target.z + radius * Math.sin(polar) * Math.cos(azimuth),
       );
       camera.lookAt(target);
+      const anim = animRef.current;
+      if (anim) {
+        const t = Math.min(
+          1,
+          (performance.now() - anim.start) / anim.dur,
+        );
+        const trio = lerpTrio(anim.from, anim.to, easeOutCubic(t));
+        const base = configRef.current;
+        const nextDisplay = {
+          ...base,
+          ...trio,
+          lengthMm: trioLengthMm(trio),
+        };
+        displayRef.current = nextDisplay;
+        setDisplay(nextDisplay);
+        if (t >= 1) {
+          animRef.current = null;
+          displayRef.current = configRef.current;
+          setDisplay(configRef.current);
+        }
+      }
       const body = bodyRef.current;
       if (body && bounceRef.current > 0) {
         const elapsed = performance.now() - bounceRef.current;
@@ -174,10 +248,10 @@ export default function BodyLabPage() {
       scene.remove(bodyRef.current);
       disposeParametricBody(bodyRef.current);
     }
-    const next = buildParametricBody(config);
+    const next = buildParametricBody(display);
     scene.add(next);
     bodyRef.current = next;
-  }, [config]);
+  }, [display]);
 
   return (
     <main style={{ padding: 24, maxWidth: 1280, margin: '0 auto' }}>
@@ -219,9 +293,10 @@ export default function BodyLabPage() {
             lang={lang}
             config={config}
             results={results}
-            onChange={setConfig}
+            onChange={handleChange}
             popKey={popKey}
             onRelease={handleRelease}
+            onSnapRelease={handleSnapRelease}
             registeredModelId={registeredModelId}
             onSelectModel={handleSelectModel}
           />
