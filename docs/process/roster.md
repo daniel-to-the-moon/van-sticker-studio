@@ -14,7 +14,7 @@
 | 体验官 | 待确认 | 正式采用的独立drawing/视觉角色，任职未确认 | 实际检查能力、身份、参与关系与回执须核实 |
 | Lulu | 待确认 | 附件候选实现者 | 平台/身份/家族/任务接受及权限不猜 |
 | codex | GPT（与 dot 同一体系） | 实现者。维护者盛俊 2026-11-03 10:19 北京时间在 codex 对话中直接回复：codex 属于 GPT 体系；并确认维护者批准覆盖本行。建议他在 PR #62 再留一句 | 是否即#39A原Codex执行者未核实；不评审自己的实现。对话回复还不是 PR 上的留痕 |
-| 备用协调者 | Clara（属于 Grok、Clara 这一体系；盛俊 2026-11-03 在 https://github.com/shengjun89/van-sticker-studio/pull/62#issuecomment-6596678578 写明 Grok 的 agent 名称是 Clara） | dot 4 小时无回应时，在给 dot 的常设委托下顺位处理协调事项 | 三组划分不变。碰到本组 PR 时如何回避：[NEEDS CLARIFICATION] 维护者尚未裁定 |
+| 备用协调者 | Clara（属于 Grok、Clara 这一体系；盛俊 2026-11-03 在 https://github.com/shengjun89/van-sticker-studio/pull/62#issuecomment-6596678578 写明 Grok 的 agent 名称是 Clara） | dot 4 小时无回应时，在给 dot 的常设委托下顺位处理协调事项 | 三组划分不变。当次身份与参与关系仍须核实。碰到本组 PR 时如何回避：[NEEDS CLARIFICATION] 维护者尚未裁定 |
 | 维护者 | 用户本人 | 最终治理/否决及保留项 | 已核验直接渠道确认，不以共享账号/前缀认证 |
 
 登记来源为handoff-to-dot.md及#6/#30/#27讨论；完整输入SHA及条款取舍见[迁移记录§9](../proposals/2026-10-27-delegation-handoff.md#9-附件完整性条款采用与待决定映射)。本表不是外部agent已accepted/running的声明。
