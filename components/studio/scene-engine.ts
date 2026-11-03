@@ -10,6 +10,13 @@ import {
   validateWiperRig,
 } from '../../lib/wiper-calibration.ts';
 import {
+  DRAWING_EXPORT_FIT,
+  DRAWING_EXPORT_PX,
+  drawingExportFilename,
+  drawingExportView,
+  studioViewDirection,
+} from '../../lib/drawing-views.ts';
+import {
   VEHICLE_ASSET_REVISION,
   VEHICLE_MODEL_URL,
   VEHICLE_MOTION_URL,
@@ -549,14 +556,7 @@ export class SceneEngine {
     );
     const wide = this.host.clientWidth / Math.max(this.host.clientHeight, 1);
     const distance = wide < 1 ? 11.8 : 10.8;
-    const vectors: Record<string, THREE.Vector3> = {
-      hero: new THREE.Vector3(-0.83, 0.48, -1),
-      entry: new THREE.Vector3(0, 0.22, -1),
-      driver: new THREE.Vector3(0, 0.22, 1),
-      front: new THREE.Vector3(-1, 0.18, 0),
-      rear: new THREE.Vector3(1, 0.22, 0),
-    };
-    const direction = vectors[view] || vectors.hero;
+    const direction = new THREE.Vector3(...studioViewDirection(view));
     const to = target
       .clone()
       .add(direction.normalize().multiplyScalar(distance));
@@ -577,6 +577,288 @@ export class SceneEngine {
   setView(view: string) {
     this.cancelCameraTween();
     this.fitCamera(true, view);
+  }
+  exportDrawing(viewId: string): { dataUrl: string; filename: string } {
+    if (this.generating) throw new Error('export-while-generating');
+    const view = drawingExportView(viewId);
+    if (!view) throw new Error('unknown-drawing-view');
+    if (!this.root) throw new Error('model-not-ready');
+    this.assertExportContext();
+    const filename = drawingExportFilename(view.id, VEHICLE_ASSET_REVISION);
+    const savedPosition = this.camera.position.clone();
+    const savedQuaternion = this.camera.quaternion.clone();
+    const savedUp = this.camera.up.clone();
+    const savedTarget = this.controls.target.clone();
+    const savedNear = this.camera.near;
+    const savedFar = this.camera.far;
+    const savedTween = this.cameraTween;
+    const savedPresentation = this.presentation;
+    const savedEnvironment = this.environment;
+    const savedFog = this.scene.fog;
+    const savedGrid = this.drawingGrid.visible;
+    const savedGround = this.ground.visible;
+    const savedCamp = this.camp.visible;
+    const savedPixelRatio = this.renderer.getPixelRatio();
+    try {
+      this.cameraTween = null;
+      this.setEnvironment('studio');
+      this.setPresentation('drawing');
+      this.scene.fog = null;
+      this.drawingGrid.visible = false;
+      this.ground.visible = false;
+      this.camp.visible = false;
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(
+        DRAWING_EXPORT_PX.width,
+        DRAWING_EXPORT_PX.height,
+        false,
+      );
+      this.camera.aspect = DRAWING_EXPORT_PX.width / DRAWING_EXPORT_PX.height;
+      this.camera.updateProjectionMatrix();
+      this.placeExportCamera(view.direction);
+      // The geometric fit includes occluded corners. A second pass recenters
+      // the ink that is actually on the sheet.
+      this.renderExportPass();
+      this.refineExportFrame();
+      this.renderExportPass();
+      return { dataUrl: this.captureExportPng(), filename };
+    } finally {
+      this.scene.fog = savedFog;
+      this.cameraTween = savedTween;
+      this.camera.near = savedNear;
+      this.camera.far = savedFar;
+      this.camera.position.copy(savedPosition);
+      this.camera.quaternion.copy(savedQuaternion);
+      this.camera.up.copy(savedUp);
+      this.camera.updateMatrixWorld();
+      this.controls.target.copy(savedTarget);
+      this.renderer.setPixelRatio(savedPixelRatio);
+      this.resize();
+      this.setEnvironment(savedEnvironment);
+      this.setPresentation(savedPresentation);
+      this.drawingGrid.visible = savedGrid;
+      this.ground.visible = savedGround;
+      this.camp.visible = savedCamp;
+    }
+  }
+  private placeExportCamera(direction: readonly [number, number, number]) {
+    if (!this.root) throw new Error('model-not-ready');
+    const aim = new THREE.Vector3(...direction).normalize();
+    if (aim.lengthSq() < 1e-8) throw new Error('unknown-drawing-view');
+    // geometry.boundingBox on the wiper rubber compounds every relative morph
+    // pose (three r180). Precise bounds follow the vertices that are drawn.
+    const box = new THREE.Box3().setFromObject(this.root, true);
+    if (box.isEmpty()) throw new Error('model-not-ready');
+    const center = box.getCenter(new THREE.Vector3());
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const corners: THREE.Vector3[] = [];
+    for (const x of [box.min.x, box.max.x])
+      for (const y of [box.min.y, box.max.y])
+        for (const z of [box.min.z, box.max.z])
+          corners.push(new THREE.Vector3(x, y, z));
+    const vFov = THREE.MathUtils.degToRad(this.camera.fov);
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * this.camera.aspect);
+    const limiting = Math.min(vFov, hFov);
+    // The live camera's far plane is too close for a full-vehicle sheet.
+    this.camera.near = Math.max(0.01, sphere.radius / 1000);
+    this.camera.far = Math.max(sphere.radius * 40, 10);
+    this.camera.updateProjectionMatrix();
+    const focus = center.clone();
+    const projected = new THREE.Vector3();
+    const measure = () => {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      let inside = true;
+      for (const corner of corners) {
+        projected.copy(corner).project(this.camera);
+        if (!(projected.z > -1 && projected.z < 1)) inside = false;
+        minX = Math.min(minX, projected.x);
+        minY = Math.min(minY, projected.y);
+        maxX = Math.max(maxX, projected.x);
+        maxY = Math.max(maxY, projected.y);
+      }
+      return { minX, minY, maxX, maxY, inside };
+    };
+    const place = (distance: number) => {
+      this.camera.position.copy(focus).addScaledVector(aim, distance);
+      this.controls.target.copy(focus);
+      this.camera.lookAt(focus);
+      this.camera.updateMatrixWorld();
+    };
+    const withinFit = (frame: ReturnType<typeof measure>) =>
+      frame.inside &&
+      Math.max(
+        Math.abs(frame.minX),
+        Math.abs(frame.maxX),
+        Math.abs(frame.minY),
+        Math.abs(frame.maxY),
+      ) <= DRAWING_EXPORT_FIT;
+    const fits = (distance: number) => {
+      place(distance);
+      return withinFit(measure());
+    };
+    const solveDistance = () => {
+      let low = Math.max(this.camera.near * 2, sphere.radius * 0.05);
+      let high =
+        (sphere.radius / Math.sin(limiting / 2)) *
+        (1 / DRAWING_EXPORT_FIT) *
+        1.5;
+      if (!fits(high)) {
+        this.camera.far = high + sphere.radius * 8;
+        this.camera.updateProjectionMatrix();
+      }
+      if (!fits(high)) throw new Error('export-fit-failed');
+      for (let step = 0; step < 24; step += 1) {
+        const mid = (low + high) / 2;
+        if (fits(mid)) high = mid;
+        else low = mid;
+      }
+      place(high);
+      return high;
+    };
+    let distance = solveDistance();
+    const right = new THREE.Vector3();
+    const up = new THREE.Vector3();
+    for (let step = 0; step < 6; step += 1) {
+      const frame = measure();
+      const shiftX = (frame.minX + frame.maxX) / 2;
+      const shiftY = (frame.minY + frame.maxY) / 2;
+      if (Math.abs(shiftX) < 0.004 && Math.abs(shiftY) < 0.004) break;
+      const halfH = distance * Math.tan(vFov / 2);
+      const halfW = halfH * this.camera.aspect;
+      right.setFromMatrixColumn(this.camera.matrixWorld, 0);
+      up.setFromMatrixColumn(this.camera.matrixWorld, 1);
+      focus.addScaledVector(right, shiftX * halfW);
+      focus.addScaledVector(up, shiftY * halfH);
+      distance = solveDistance();
+    }
+  }
+  private exportContextLost() {
+    const gl = this.renderer.getContext();
+    return gl !== null && gl.isContextLost();
+  }
+  private assertExportContext() {
+    if (this.exportContextLost()) throw new Error('export-context-lost');
+  }
+  /** Draw one export frame and refuse a lost context or a renderer no-op. */
+  private renderExportPass() {
+    if (!this.root) throw new Error('model-not-ready');
+    this.assertExportContext();
+    const frameBefore = this.renderer.info?.render.frame;
+    this.renderer.render(this.scene, this.camera);
+    if (
+      typeof frameBefore === 'number' &&
+      this.renderer.info.render.frame === frameBefore
+    )
+      throw new Error('export-render-noop');
+    this.silhouette.render(this.renderer, this.scene, this.camera, this.root);
+    this.assertExportContext();
+  }
+  /** Pan so the drawn ink, not occluded bounds, sits in the sheet. */
+  private refineExportFrame() {
+    const width = DRAWING_EXPORT_PX.width;
+    const height = DRAWING_EXPORT_PX.height;
+    const gl = this.renderer.getContext();
+    if (!gl || typeof document === 'undefined') return;
+    this.assertExportContext();
+    const pixels = new Uint8Array(width * height * 4);
+    try {
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    } catch (error) {
+      if (this.exportContextLost()) throw new Error('export-context-lost');
+      if (error instanceof Error && error.message === 'export-context-lost')
+        throw error;
+      return;
+    }
+    this.assertExportContext();
+    let minX: number = width;
+    let minY: number = height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let py = 0; py < height; py += 1) {
+      const y = height - 1 - py;
+      for (let x = 0; x < width; x += 1) {
+        const index = (py * width + x) * 4;
+        const delta = Math.max(
+          Math.abs(pixels[index] - 241),
+          Math.abs(pixels[index + 1] - 238),
+          Math.abs(pixels[index + 2] - 228),
+        );
+        if (delta <= 8) continue;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (maxX < minX) return;
+    const centerX = (minX + maxX) / 2 / width;
+    const centerY = (minY + maxY) / 2 / height;
+    const longFrac = Math.max(
+      (maxX - minX + 1) / width,
+      (maxY - minY + 1) / height,
+    );
+    if (longFrac < 0.05) return;
+    const aim = new THREE.Vector3().subVectors(
+      this.camera.position,
+      this.controls.target,
+    );
+    const distance = aim.length();
+    if (distance < 1e-4) return;
+    aim.multiplyScalar(1 / distance);
+    const vFov = THREE.MathUtils.degToRad(this.camera.fov);
+    const halfH = distance * Math.tan(vFov / 2);
+    const halfW = halfH * this.camera.aspect;
+    const right = new THREE.Vector3().setFromMatrixColumn(
+      this.camera.matrixWorld,
+      0,
+    );
+    const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
+    const focus = this.controls.target.clone();
+    // Distance stays put: dollying from the ink box cropped the near edge.
+    focus.addScaledVector(right, (centerX - 0.5) * 2 * halfW);
+    focus.addScaledVector(up, (0.5 - centerY) * 2 * halfH);
+    this.camera.position.copy(focus).addScaledVector(aim, distance);
+    this.controls.target.copy(focus);
+    this.camera.lookAt(focus);
+    this.camera.updateMatrixWorld();
+  }
+  private captureExportPng() {
+    const width = DRAWING_EXPORT_PX.width;
+    const height = DRAWING_EXPORT_PX.height;
+    const buffer = new THREE.Vector2();
+    this.renderer.getDrawingBufferSize(buffer);
+    if (buffer.x !== width || buffer.y !== height)
+      throw new Error('export-size-mismatch');
+    const gl = this.renderer.getContext();
+    if (gl && typeof document !== 'undefined') {
+      this.assertExportContext();
+      try {
+        const pixels = new Uint8Array(width * height * 4);
+        gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        this.assertExportContext();
+        if (pixels.some((value) => value !== 0))
+          return rgbaToPngDataUrl(pixels, width, height);
+      } catch (error) {
+        if (this.exportContextLost()) throw new Error('export-context-lost');
+        if (
+          error instanceof Error &&
+          (error.message === 'export-context-lost' ||
+            error.message === 'export-render-noop')
+        )
+          throw error;
+        // A multisampled drawing buffer can reject readPixels. The canvas
+        // read below is the same frame, so it still sees the export.
+      }
+    }
+    this.assertExportContext();
+    const url = this.renderer.domElement.toDataURL('image/png');
+    this.assertExportContext();
+    if (!url.startsWith('data:image/png'))
+      throw new Error('export-capture-failed');
+    return url;
   }
   setPresentation(value: Presentation) {
     this.presentation = value;
@@ -916,4 +1198,35 @@ export class SceneEngine {
     this.renderer.dispose();
     c.remove();
   }
+}
+
+function rgbaToPngDataUrl(pixels: Uint8Array, width: number, height: number) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('export-capture-failed');
+  const image = context.createImageData(width, height);
+  const row = width * 4;
+  for (let y = 0; y < height; y += 1) {
+    const source = (height - 1 - y) * row;
+    image.data.set(pixels.subarray(source, source + row), y * row);
+  }
+  for (let i = 0; i < image.data.length; i += 4) {
+    const alpha = image.data[i + 3];
+    if (alpha === 0 || alpha === 255) continue;
+    image.data[i] = Math.min(255, Math.round((image.data[i] * 255) / alpha));
+    image.data[i + 1] = Math.min(
+      255,
+      Math.round((image.data[i + 1] * 255) / alpha),
+    );
+    image.data[i + 2] = Math.min(
+      255,
+      Math.round((image.data[i + 2] * 255) / alpha),
+    );
+  }
+  context.putImageData(image, 0, 0);
+  const url = canvas.toDataURL('image/png');
+  if (!url.startsWith('data:image/png')) throw new Error('export-capture-failed');
+  return url;
 }

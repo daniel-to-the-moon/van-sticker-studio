@@ -31,6 +31,7 @@ export interface VehicleHandle {
   applySticker: (s: Sticker | null) => Promise<void>;
   setView: (view: string) => void;
   getState: () => unknown;
+  exportDrawing: (viewId: string) => { dataUrl: string; filename: string };
 }
 interface Props {
   lang: Lang;
@@ -104,6 +105,27 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
         },
         setView: (view) => engine.current?.setView(view),
         getState: () => engine.current?.getState(),
+        exportDrawing(viewId) {
+          if (!engine.current)
+            throw Error(t(latest.current.lang, 'export.notReady'));
+          try {
+            return engine.current.exportDrawing(viewId);
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              error.message === 'export-while-generating'
+            )
+              throw Error(t(latest.current.lang, 'export.rejectedGenerating'));
+            if (
+              error instanceof Error &&
+              error.message === 'unknown-drawing-view'
+            )
+              throw Error(t(latest.current.lang, 'error.unknownView'));
+            if (error instanceof Error && error.message === 'model-not-ready')
+              throw Error(t(latest.current.lang, 'error.waitVehicle'));
+            throw Error(t(latest.current.lang, 'export.failed'));
+          }
+        },
       }),
       [],
     );

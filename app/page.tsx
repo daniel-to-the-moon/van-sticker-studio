@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   ArrowUpRight,
   ArrowRight,
@@ -40,6 +40,12 @@ import {
 } from '@/lib/stickers';
 import { t, type Lang, type SlotStatus, type StringKey } from '@/lib/i18n';
 import type { Metadata, Presentation } from '@/components/studio/scene-engine';
+import {
+  DRAWING_EXPORT_VIEWS,
+  drawingExportView,
+  requestDrawingExport,
+  type DrawingExportViewId,
+} from '@/lib/drawing-views';
 import { readStickerBatch } from '@/lib/sticker-stream';
 import { useStudioTools } from '@/components/studio/use-studio-tools';
 const PART_KEYS: Record<string, StringKey> = {
@@ -91,6 +97,14 @@ export default function Home() {
   const [toast, setToast] = useState('');
   const [sequence, setSequence] = useState(false);
   const [view, setView] = useState('hero');
+  const [exportView, setExportView] = useState<DrawingExportViewId>('entry');
+  // Same default-off switch as the other quick entries. The query only
+  // reveals the exporter for review; it does not change SHOW_QUICK_ENTRIES.
+  const drawingExportPreview = useSyncExternalStore(
+    () => () => {},
+    () => new URLSearchParams(window.location.search).get('drawing-export') === '1',
+    () => false,
+  );
   const [elapsed, setElapsed] = useState(0);
   const [wrapState, setWrapState] = useState<WrapEditState | null>(null);
   const applyVersion = useRef(0);
@@ -106,6 +120,7 @@ export default function Home() {
   useEffect(() => {
     langRef.current = lang;
   }, [lang]);
+  const showDrawingExport = SHOW_QUICK_ENTRIES || drawingExportPreview;
   const nameOf = (id: string) => partName(id, lang);
   const announce = useCallback((message: string) => {
     setToast(message);
@@ -282,6 +297,60 @@ export default function Home() {
     setView(value);
     vehicle.current?.setView(value);
   }, []);
+  const exportThroughGate = useCallback((viewId: string) => {
+    try {
+      return requestDrawingExport(viewId, {
+        generationActive: generation.current !== null,
+        exportDrawing: (id) => vehicle.current?.exportDrawing(id),
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === 'export-while-generating'
+      )
+        throw Error(t(langRef.current, 'export.rejectedGenerating'));
+      if (error instanceof Error && error.message === 'model-not-ready')
+        throw Error(t(langRef.current, 'export.notReady'));
+      throw error;
+    }
+  }, []);
+  const downloadDrawing = useCallback(() => {
+    try {
+      const file = exportThroughGate(exportView);
+      const link = document.createElement('a');
+      link.href = file.dataUrl;
+      link.download = file.filename;
+      link.rel = 'noopener';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      announce(
+        error instanceof Error
+          ? error.message
+          : t(langRef.current, 'export.failed'),
+      );
+    }
+  }, [announce, exportThroughGate, exportView]);
+  useEffect(() => {
+    if (!drawingExportPreview) return;
+    const host = window as Window & {
+      __drawingExport?: {
+        exportDrawing: (viewId: string) => {
+          dataUrl: string;
+          filename: string;
+        };
+        getState: () => unknown;
+      };
+    };
+    host.__drawingExport = {
+      exportDrawing: (viewId) => exportThroughGate(viewId),
+      getState: () => vehicle.current?.getState() ?? null,
+    };
+    return () => {
+      delete host.__drawingExport;
+    };
+  }, [drawingExportPreview, exportThroughGate]);
   const camp = () => {
     stopSequence();
     setSequence(true);
@@ -731,6 +800,37 @@ export default function Home() {
             </span>
           </div>
           <div className="scene-toolbar">
+            {showDrawingExport ? (
+              <fieldset
+                className="drawing-export"
+                aria-label={t(lang, 'export.aria')}
+              >
+                <label>
+                  {t(lang, 'export.label')}
+                  <select
+                    value={exportView}
+                    aria-label={t(lang, 'export.label')}
+                    onChange={(event) => {
+                      const next = drawingExportView(event.target.value);
+                      if (next) setExportView(next.id);
+                    }}
+                  >
+                    {DRAWING_EXPORT_VIEWS.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {t(lang, item.labelKey)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  disabled={!ready || busy}
+                  onClick={downloadDrawing}
+                >
+                  {t(lang, 'export.action')}
+                </button>
+              </fieldset>
+            ) : null}
             {SHOW_QUICK_ENTRIES && (
               <div
                 className="environment-switch"
