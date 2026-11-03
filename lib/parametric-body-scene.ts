@@ -17,8 +17,10 @@ import * as THREE from 'three';
 import type { BodyConfig } from './parametric-body.ts';
 import {
   TRAILER_HITCH_MM,
+  axlePositionsMm,
   isPopUpRoof,
   isTowableKind,
+  trioOf,
 } from './parametric-body.ts';
 
 const BODY_CREAM = 0xe9e2d2;
@@ -164,7 +166,7 @@ function buildVanBody(
   const L = config.lengthMm / 1000;
   const W = config.widthMm / 1000;
   const H = config.heightMm / 1000;
-  const wheelbase = config.wheelbaseMm / 1000;
+  const axles = axlePositionsMm(config.lengthMm, trioOf(config));
 
   // Rear body box (full height) and cab box (front, lower top).
   const rearLen = L * 0.62;
@@ -260,7 +262,12 @@ function buildVanBody(
     );
   }
 
-  wheels(group, [-wheelbase / 2, wheelbase / 2], wheelRadius, W);
+  wheels(
+    group,
+    [axles.frontAxleMm / 1000, axles.rearAxleMm / 1000],
+    wheelRadius,
+    W,
+  );
   const skirt = box(L * 0.9, 0.12, W * 0.98, RUBBER_DARK, 0, floorY - 0.02, 0);
   group.add(skirt);
   return group;
