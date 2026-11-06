@@ -9,6 +9,7 @@ import * as i18n from '../lib/i18n.ts';
 import * as stickers from '../lib/stickers.ts';
 import * as stickerStream from '../lib/sticker-stream.ts';
 import * as planInsights from '../lib/plan-insights.ts';
+import * as drawingViews from '../lib/drawing-views.ts';
 
 /**
  * Renders the real homepage with a scene stub and an intercepted fetch.
@@ -324,6 +325,7 @@ const windowShim = new WindowShim(documentShim);
 documentShim.defaultView = windowShim;
 Object.assign(windowShim, {
   document: documentShim,
+  location: { search: '' },
   HTMLIFrameElement: class HTMLIFrameElement {},
   HTMLElement: MiniNode,
   Element: MiniNode,
@@ -464,6 +466,17 @@ function loadPage() {
       default: VehicleScene,
     },
     '@/components/studio/PlanInsights': { __esModule: true, default: () => null },
+    '@/components/studio/PalettePicker': {
+      __esModule: true,
+      default: () => null,
+    },
+    '@/components/studio/PalettePicker.module.css': {
+      __esModule: true,
+      default: new Proxy(
+        {},
+        { get: (_target, key) => String(key) },
+      ),
+    },
     '@/components/studio/use-studio-tools': {
       __esModule: true,
       useStudioTools() {},
@@ -472,6 +485,7 @@ function loadPage() {
     '@/lib/stickers': namespace(stickers),
     '@/lib/sticker-stream': namespace(stickerStream),
     '@/lib/plan-insights': namespace(planInsights),
+    '@/lib/drawing-views': namespace(drawingViews),
   };
   const pageModule: { exports: { default?: React.ComponentType } } = {
     exports: {},
