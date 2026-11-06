@@ -50,6 +50,12 @@ const hidden: WrapEditState = {
   dragging: false,
   hintCode: 'default',
 };
+type EntryDoorSpan = { s0: number; s1: number; h0: number; h1: number };
+/** One gap, in metres, applied only when choosing the rear slot. */
+const ENTRY_DOOR_CLEARANCE_M = 0.05;
+/** Matches constrainDecal's floor. A smaller request is an explicit miss. */
+const MIN_DECAL_SCALE = 0.25;
+const DECAL_BASE_WIDTH_M = 3.5;
 
 /** Direct editing uses the same closed-pose surface chart as the rendered ink. */
 export class VehicleWrapEditor {
@@ -87,9 +93,14 @@ export class VehicleWrapEditor {
     x: number;
     y: number;
     start: DecalPlacement;
+    entryAdjusted: boolean;
     hit: SurfaceHit | null;
     target: Element | null;
   } | null = null;
+  /** Closed-pose chart span. Later image changes must not remeasure a posed door. */
+  private entryDoorSpan: EntryDoorSpan | null = null;
+  private entryDoorClear = false;
+  private entryAdjusted = false;
   private uniforms: { [key: string]: { value: unknown } };
   constructor(options: {
     root: THREE.Group;
@@ -142,6 +153,7 @@ export class VehicleWrapEditor {
         bounds.expandByObject(mesh, true);
     if (!bounds.isEmpty())
       this.body = { ...this.body, centerZ: (bounds.min.z + bounds.max.z) / 2 };
+    this.cacheEntryDoor(meshes);
     const materials = new Set<THREE.MeshStandardMaterial>();
     for (const o of meshes) {
       const wrap = [o.material].flat().every((m) => m.name.startsWith('Wrap_'));
@@ -282,6 +294,7 @@ export class VehicleWrapEditor {
     this.texture = null;
     if (image) {
       this.aspect = image.naturalWidth / image.naturalHeight;
+      if (!this.entryAdjusted) this.applyEntryDefault();
       this.texture = new THREE.Texture(image);
       this.texture.colorSpace = THREE.SRGBColorSpace;
       this.texture.flipY = false;
@@ -289,6 +302,8 @@ export class VehicleWrapEditor {
       this.texture.needsUpdate = true;
     } else {
       this.placements = this.defaults();
+      this.entryAdjusted = false;
+      this.entryDoorClear = false;
       this.selected = false;
       this.hovered = false;
       this.locked = false;
@@ -328,6 +343,9 @@ export class VehicleWrapEditor {
       locked: this.locked,
       contextMenu: this.contextMenu,
       dragging: !!this.drag,
+      entryDoorClear: this.entryDoorClear,
+      entryAdjusted: this.entryAdjusted,
+      entryDoorSpan: this.entryDoorSpan ? { ...this.entryDoorSpan } : null,
     };
   }
   private sync() {
@@ -525,6 +543,7 @@ export class VehicleWrapEditor {
       x: e.clientX,
       y: e.clientY,
       start: { ...this.placements[this.active] },
+      entryAdjusted: this.entryAdjusted,
       hit: startHit,
       target: e.target instanceof Element ? e.target : null,
     };
@@ -567,7 +586,14 @@ export class VehicleWrapEditor {
   private finish(revert: boolean) {
     const drag = this.drag;
     if (!drag) return;
-    if (revert) this.placements[this.active] = drag.start;
+    if (revert) {
+      this.placements[this.active] = drag.start;
+      this.entryAdjusted = drag.entryAdjusted;
+    } else if (
+      this.active === 0 &&
+      !this.sameDecal(this.placements[0], drag.start)
+    )
+      this.entryAdjusted = true;
     if (drag.target?.hasPointerCapture(drag.id))
       drag.target.releasePointerCapture(drag.id);
     this.drag = null;
@@ -580,22 +606,124 @@ export class VehicleWrapEditor {
   scaleBy(factor: number) {
     if (!this.enabled || !this.texture || this.locked) return;
     this.selected = true;
-    this.placements[this.active].scale *= factor;
+    const active = this.active;
+    const before = { ...this.placements[active] };
+    this.placements[active].scale *= factor;
     this.sync();
+    this.noteEntryEdit(active, before);
     this.refreshBoundary();
   }
   nudge(dx: number, dy: number) {
     if (!this.enabled || !this.texture || this.locked) return;
-    this.placements[this.active].center += dx;
-    this.placements[this.active].height += dy;
+    const active = this.active;
+    const before = { ...this.placements[active] };
+    this.placements[active].center += dx;
+    this.placements[active].height += dy;
     this.sync();
+    this.noteEntryEdit(active, before);
     this.refreshBoundary();
   }
   reset() {
     if (!this.enabled || !this.texture || this.locked) return;
-    this.placements = this.defaults();
+    this.entryAdjusted = false;
+    const legacy = this.defaults();
+    const entry = this.entryDefault(this.aspect);
+    this.entryDoorClear = entry.clear;
+    this.placements = [entry.placement, legacy[1]];
     this.sync();
     this.refreshBoundary();
+  }
+  private sameDecal(a: DecalPlacement, b: DecalPlacement) {
+    return a.center === b.center && a.height === b.height && a.scale === b.scale;
+  }
+  private noteEntryEdit(active: number, before: DecalPlacement) {
+    if (active === 0 && !this.sameDecal(this.placements[0], before))
+      this.entryAdjusted = true;
+  }
+  private cacheEntryDoor(meshes: THREE.Mesh[]) {
+    const bounds = new THREE.Box3();
+    for (const mesh of meshes)
+      if (mesh.name.startsWith('RV_WebRig_EntryDoor_'))
+        bounds.expandByObject(mesh, true);
+    if (bounds.isEmpty()) {
+      this.entryDoorSpan = null;
+      return;
+    }
+    const projected = [bounds.min.x, bounds.max.x].flatMap((x) =>
+      [bounds.min.z, bounds.max.z].map((z) => this.entryChartPoint(x, z)),
+    );
+    const ss = projected.map((p) => p.s);
+    const s0 = Math.min(...ss);
+    const s1 = Math.max(...ss);
+    const period = circumference(this.body);
+    const usable =
+      projected.every((p) => p.entry) &&
+      s1 - s0 < period / 2 &&
+      s0 > 0 &&
+      s1 < period;
+    this.entryDoorSpan = usable
+      ? { s0, s1, h0: bounds.min.y, h1: bounds.max.y }
+      : null;
+  }
+  /** Side test beside perimeterCoordinate; s itself always comes from that function. */
+  private entryChartPoint(x: number, z: number) {
+    const b = this.body;
+    const zLocal = z - (b.centerZ || 0);
+    const half = b.length / 2;
+    const w = b.width / 2;
+    const dx = x - (b.xMin + half);
+    const r = Math.max(Math.abs(dx) / half, Math.abs(zLocal) / w, 1e-6);
+    const px = dx / r;
+    const pz = zLocal / r;
+    const onSide = Math.abs(pz / w) >= Math.abs(px / half) - 1e-8;
+    const s = perimeterCoordinate(x, z, b);
+    const period = circumference(b);
+    const sideS = ((half - px) % period + period) % period;
+    return {
+      s,
+      entry:
+        onSide && pz < 0 && Math.abs(wrappedDelta(s, sideS, period)) <= 1e-6,
+    };
+  }
+  private applyEntryDefault() {
+    const entry = this.entryDefault(this.aspect);
+    this.entryDoorClear = entry.clear;
+    this.placements[0] = entry.placement;
+  }
+  private entryDefault(aspect: number) {
+    const legacy = this.defaults()[0];
+    const door = this.entryDoorSpan;
+    if (!door) return { placement: legacy, clear: false };
+    const rear0 = ENTRY_DOOR_CLEARANCE_M;
+    const rear1 = door.s0 - ENTRY_DOOR_CLEARANCE_M;
+    const width = rear1 - rear0;
+    if (!(width > 0) || width / DECAL_BASE_WIDTH_M < MIN_DECAL_SCALE)
+      return { placement: legacy, clear: false };
+    const requested = {
+      center: (rear0 + rear1) / 2,
+      height: 1.28,
+      scale: Math.min(1, width / DECAL_BASE_WIDTH_M),
+    };
+    const placement = constrainDecal(requested, aspect, this.body);
+    if (this.placementHitsDoor(placement, aspect, door))
+      return { placement: legacy, clear: false };
+    return { placement, clear: true };
+  }
+  private placementHitsDoor(
+    placement: DecalPlacement,
+    aspect: number,
+    door: EntryDoorSpan,
+  ) {
+    const halfW = (DECAL_BASE_WIDTH_M * placement.scale) / 2;
+    const halfH = halfW / aspect;
+    const h0 = placement.height - halfH;
+    const h1 = placement.height + halfH;
+    if (!(h0 < door.h1 && door.h0 < h1)) return false;
+    const period = circumference(this.body);
+    const s0 = placement.center - halfW;
+    const s1 = placement.center + halfW;
+    if (s0 < 0 || s1 > period) return true;
+    return s0 < door.s1 && door.s0 < s1;
   }
   private key = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
