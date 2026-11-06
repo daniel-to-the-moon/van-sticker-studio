@@ -1,0 +1,294 @@
+{
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "errors": [],
+  "requests": [
+    {
+      "url": "http://localhost:3000/api/status",
+      "method": "GET"
+    }
+  ],
+  "stages": [
+    {
+      "name": "en-initial",
+      "coverage": "24.9%",
+      "caption": "Combined decal area, both sides 8.81 ㎡Paintable area, both sides (perimeter chart) 35.4 ㎡",
+      "priceTotal": "¥540–¥1,440≈ 18% of a full color change",
+      "priceRows": "Reference total¥540–¥1,440≈ 18% of a full color changeFilm needed11.01 ㎡Includes edge/cutting waste factor ×1.25Film55%¥300–¥790Labor45%¥240–¥650",
+      "insightsRect": {
+        "x": 28,
+        "y": 856.28125,
+        "width": 299,
+        "height": 978.21875,
+        "top": 856.28125,
+        "right": 327,
+        "bottom": 1834.5,
+        "left": 28
+      },
+      "panelScroll": 0,
+      "details": [
+        {
+          "open": false,
+          "text": "Compliance notes"
+        },
+        {
+          "open": false,
+          "text": "Installation check"
+        },
+        {
+          "open": false,
+          "text": "Reversible & value-friendly"
+        }
+      ],
+      "localNotice": true,
+      "quoteNotice": true
+    },
+    {
+      "name": "en-summary",
+      "coverage": "24.9%",
+      "caption": "Combined decal area, both sides 8.81 ㎡Paintable area, both sides (perimeter chart) 35.4 ㎡",
+      "priceTotal": "¥540–¥1,440≈ 18% of a full color change",
+      "priceRows": "Reference total¥540–¥1,440≈ 18% of a full color changeFilm needed11.01 ㎡Includes edge/cutting waste factor ×1.25Film55%¥300–¥790Labor45%¥240–¥650",
+      "insightsRect": {
+        "x": 28,
+        "y": 72.28125,
+        "width": 299,
+        "height": 978.21875,
+        "top": 72.28125,
+        "right": 327,
+        "bottom": 1050.5,
+        "left": 28
+      },
+      "panelScroll": 784,
+      "details": [
+        {
+          "open": false,
+          "text": "Compliance notes"
+        },
+        {
+          "open": false,
+          "text": "Installation check"
+        },
+        {
+          "open": false,
+          "text": "Reversible & value-friendly"
+        }
+      ],
+      "localNotice": true,
+      "quoteNotice": true
+    },
+    {
+      "name": "native-keyboard",
+      "enter": true,
+      "space": true,
+      "tabSecond": "Installation check",
+      "tabThird": "Reversible & value-friendly",
+      "shiftTabBack": "Installation check",
+      "focusVisible": true,
+      "focusOutline": {
+        "width": "2px",
+        "style": "solid",
+        "color": "rgb(53, 92, 87)"
+      }
+    },
+    {
+      "name": "zh-summary",
+      "coverage": "24.9%",
+      "caption": "两侧贴图面积合计 8.81 ㎡两侧可贴面（周长图） 35.4 ㎡",
+      "priceTotal": "¥540–¥1,440约为全车改色的 18%",
+      "priceRows": "参考总价¥540–¥1,440约为全车改色的 18%膜材用量11.01 ㎡含包边/裁切损耗系数 ×1.25膜材55%¥300–¥790施工45%¥240–¥650",
+      "insightsRect": {
+        "x": 28,
+        "y": -113.40625,
+        "width": 299,
+        "height": 851.25,
+        "top": -113.40625,
+        "right": 327,
+        "bottom": 737.84375,
+        "left": 28
+      },
+      "panelScroll": 933,
+      "details": [
+        {
+          "open": false,
+          "text": "合规说明"
+        },
+        {
+          "open": false,
+          "text": "施工评估"
+        },
+        {
+          "open": false,
+          "text": "可逆与保值"
+        }
+      ],
+      "localNotice": true,
+      "quoteNotice": true
+    },
+    {
+      "name": "gizmo",
+      "bounds": {
+        "x": 577.1875,
+        "y": 271.9375,
+        "width": 238,
+        "height": 65
+      }
+    },
+    {
+      "name": "pointer-move",
+      "before": {
+        "coverage": "24.9%",
+        "caption": "Combined decal area, both sides 8.81 ㎡Paintable area, both sides (perimeter chart) 35.4 ㎡",
+        "priceTotal": "¥540–¥1,440≈ 18% of a full color change",
+        "priceRows": "Reference total¥540–¥1,440≈ 18% of a full color changeFilm needed11.01 ㎡Includes edge/cutting waste factor ×1.25Film55%¥300–¥790Labor45%¥240–¥650",
+        "insightsRect": {
+          "x": 28,
+          "y": -247.71875,
+          "width": 299,
+          "height": 1419.765625,
+          "top": -247.71875,
+          "right": 327,
+          "bottom": 1172.046875,
+          "left": 28
+        },
+        "panelScroll": 1104,
+        "details": [
+          {
+            "open": true,
+            "text": "Compliance notes"
+          },
+          {
+            "open": false,
+            "text": "Installation check"
+          },
+          {
+            "open": false,
+            "text": "Reversible & value-friendly"
+          }
+        ],
+        "localNotice": true,
+        "quoteNotice": true
+      },
+      "after": {
+        "coverage": "24.9%",
+        "caption": "Combined decal area, both sides 8.81 ㎡Paintable area, both sides (perimeter chart) 35.4 ㎡",
+        "priceTotal": "¥540–¥1,440≈ 18% of a full color change",
+        "priceRows": "Reference total¥540–¥1,440≈ 18% of a full color changeFilm needed11.01 ㎡Includes edge/cutting waste factor ×1.25Film55%¥300–¥790Labor45%¥240–¥650",
+        "insightsRect": {
+          "x": 28,
+          "y": -247.71875,
+          "width": 299,
+          "height": 1419.765625,
+          "top": -247.71875,
+          "right": 327,
+          "bottom": 1172.046875,
+          "left": 28
+        },
+        "panelScroll": 1104,
+        "details": [
+          {
+            "open": true,
+            "text": "Compliance notes"
+          },
+          {
+            "open": false,
+            "text": "Installation check"
+          },
+          {
+            "open": false,
+            "text": "Reversible & value-friendly"
+          }
+        ],
+        "localNotice": true,
+        "quoteNotice": true
+      },
+      "delta": {
+        "x": 28,
+        "y": -10
+      }
+    },
+    {
+      "name": "keyboard-nudge",
+      "coverage": "24.9%",
+      "caption": "Combined decal area, both sides 8.81 ㎡Paintable area, both sides (perimeter chart) 35.4 ㎡",
+      "priceTotal": "¥540–¥1,440≈ 18% of a full color change",
+      "priceRows": "Reference total¥540–¥1,440≈ 18% of a full color changeFilm needed11.01 ㎡Includes edge/cutting waste factor ×1.25Film55%¥300–¥790Labor45%¥240–¥650",
+      "insightsRect": {
+        "x": 28,
+        "y": -247.71875,
+        "width": 299,
+        "height": 1419.765625,
+        "top": -247.71875,
+        "right": 327,
+        "bottom": 1172.046875,
+        "left": 28
+      },
+      "panelScroll": 1104,
+      "details": [
+        {
+          "open": true,
+          "text": "Compliance notes"
+        },
+        {
+          "open": false,
+          "text": "Installation check"
+        },
+        {
+          "open": false,
+          "text": "Reversible & value-friendly"
+        }
+      ],
+      "localNotice": true,
+      "quoteNotice": true
+    },
+    {
+      "name": "pointer-scale",
+      "after": {
+        "coverage": "40.6%",
+        "caption": "Combined decal area, both sides 14.36 ㎡Paintable area, both sides (perimeter chart) 35.4 ㎡",
+        "priceTotal": "¥880–¥2,350≈ 29% of a full color change",
+        "priceRows": "Reference total¥880–¥2,350≈ 29% of a full color changeFilm needed17.95 ㎡Includes edge/cutting waste factor ×1.25Film55%¥480–¥1,290Labor45%¥400–¥1,060",
+        "insightsRect": {
+          "x": 28,
+          "y": -288.71875,
+          "width": 299,
+          "height": 1461.359375,
+          "top": -288.71875,
+          "right": 327,
+          "bottom": 1172.640625,
+          "left": 28
+        },
+        "panelScroll": 1145,
+        "details": [
+          {
+            "open": true,
+            "text": "Compliance notes"
+          },
+          {
+            "open": false,
+            "text": "Installation check"
+          },
+          {
+            "open": false,
+            "text": "Reversible & value-friendly"
+          }
+        ],
+        "localNotice": true,
+        "quoteNotice": true
+      },
+      "scaleOutput": "150%",
+      "complianceStillOpen": true,
+      "delta": {
+        "x": 34,
+        "y": -34
+      }
+    }
+  ],
+  "status": "failed",
+  "failure": {
+    "message": "The expression evaluated to a falsy value:\n\n  assert.ok(narrow.documentWidth<=narrow.viewport)\n",
+    "stack": "AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:\n\n  assert.ok(narrow.documentWidth<=narrow.viewport)\n\n    at file:///tmp/vss-19-evidence/after-functional.mjs:96:9"
+  }
+}

@@ -8,6 +8,7 @@ import ComplianceCard from './ComplianceCard';
 import PriceEstimateCard from './PriceEstimateCard';
 import InstallCheckCard from './InstallCheckCard';
 import ReversibilityNote from './ReversibilityNote';
+import styles from './PlanInsights.module.css';
 
 interface Props {
   lang: Lang;
@@ -37,24 +38,42 @@ export default function PlanInsights({
     [coverage.decalAreaM2, body],
   );
   return (
-    <section className="insights-section" aria-label={t(lang, 'insights.aria')}>
+    <section
+      className={`insights-section ${styles.root}`}
+      aria-label={t(lang, 'insights.aria')}
+    >
       <div className="section-line">
         <h2>{t(lang, 'insights.title')}</h2>
         <span>
-          {appliedName} · {t(lang, 'insights.meta')}
+          {appliedName && `${appliedName} · `}
+          {t(lang, 'insights.meta')}
         </span>
       </div>
-      <CoverageMeter
-        lang={lang}
-        ratio={coverage.ratio}
-        decalAreaM2={coverage.decalAreaM2}
-        totalSideAreaM2={coverage.totalSideAreaM2}
-        overThreshold={coverage.overThreshold}
-      />
-      <ComplianceCard lang={lang} overThreshold={coverage.overThreshold} />
-      <PriceEstimateCard lang={lang} price={price} />
-      <InstallCheckCard lang={lang} />
-      <ReversibilityNote lang={lang} />
+      <div className={styles.summary}>
+        <div className={styles.summaryFields}>
+          <CoverageMeter
+            lang={lang}
+            ratio={coverage.ratio}
+            decalAreaM2={coverage.decalAreaM2}
+            totalSideAreaM2={coverage.totalSideAreaM2}
+            overThreshold={coverage.overThreshold}
+          />
+          <PriceEstimateCard lang={lang} price={price} />
+        </div>
+        <p className={styles.authority}>{t(lang, 'compliance.footnote')}</p>
+      </div>
+      <details className={styles.detail}>
+        <summary>{t(lang, 'compliance.title')}</summary>
+        <ComplianceCard lang={lang} overThreshold={coverage.overThreshold} />
+      </details>
+      <details className={styles.detail}>
+        <summary>{t(lang, 'install.title')}</summary>
+        <InstallCheckCard lang={lang} />
+      </details>
+      <details className={styles.detail}>
+        <summary>{t(lang, 'reversibility.title')}</summary>
+        <ReversibilityNote lang={lang} />
+      </details>
     </section>
   );
 }

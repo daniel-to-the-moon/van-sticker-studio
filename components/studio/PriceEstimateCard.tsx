@@ -36,34 +36,29 @@ export default function PriceEstimateCard({ lang, price }: Props) {
         </span>
       </div>
       <dl className="price-rows">
-        <div>
-          <dt>{t(lang, 'price.film')}</dt>
-          <dd>
-            {price.filmAreaM2.toFixed(2)} ㎡
-            <small>
-              {t(lang, 'price.filmNote')} ×{FILM_WASTE_FACTOR} ·{' '}
-              {t(lang, 'price.referenceTag')}
-            </small>
-          </dd>
-        </div>
         <div className="price-total-row">
           <dt>{t(lang, 'price.total')}</dt>
           <dd>
             {formatYuan(price.priceLowYuan, lang)}–
             {formatYuan(price.priceHighYuan, lang)}
             <small>
-              {t(lang, 'price.compare', { percent: comparePercent })} ·{' '}
-              {t(lang, 'price.referenceTag')}
+              {t(lang, 'price.compare', { percent: comparePercent })}
+            </small>
+          </dd>
+        </div>
+        <div>
+          <dt>{t(lang, 'price.film')}</dt>
+          <dd>
+            {price.filmAreaM2.toFixed(2)} ㎡
+            <small>
+              {t(lang, 'price.filmNote')} ×{FILM_WASTE_FACTOR}
             </small>
           </dd>
         </div>
         <div>
           <dt>
             {t(lang, 'price.material')}
-            <small>
-              {Math.round(MATERIAL_COST_SHARE * 100)}% ·{' '}
-              {t(lang, 'price.referenceTag')}
-            </small>
+            <small>{Math.round(MATERIAL_COST_SHARE * 100)}%</small>
           </dt>
           <dd>
             {formatYuan(price.materialLowYuan, lang)}–
@@ -73,10 +68,7 @@ export default function PriceEstimateCard({ lang, price }: Props) {
         <div>
           <dt>
             {t(lang, 'price.labor')}
-            <small>
-              {Math.round(LABOR_COST_SHARE * 100)}% ·{' '}
-              {t(lang, 'price.referenceTag')}
-            </small>
+            <small>{Math.round(LABOR_COST_SHARE * 100)}%</small>
           </dt>
           <dd>
             {formatYuan(price.laborLowYuan, lang)}–

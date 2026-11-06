@@ -1,0 +1,124 @@
+.root {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.root :global(.section-line) {
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+
+.root :global(.section-line span) {
+  overflow-wrap: anywhere;
+}
+
+.summary {
+  border: 1px solid #d8e2db;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.summaryFields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.summaryFields > :global(.insight-card) {
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.summaryFields > :global(.price-estimate-card) {
+  border-top: 1px solid #e4e8e3;
+}
+
+.summary :global(.coverage-bar-caption),
+.summary :global(.coverage-badge) {
+  flex-wrap: wrap;
+}
+
+.summary :global(.coverage-threshold-note) {
+  margin-left: 0;
+  white-space: normal;
+}
+
+.summary :global(.price-total-row dd) {
+  font-size: 22px;
+  line-height: 1.3;
+}
+
+.summary :global(.price-rows > div) {
+  align-items: flex-start;
+}
+
+.summary :global(.price-rows dd) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.summary :global(.insight-footnote),
+.summary :global(.coverage-bar-caption),
+.summary :global(.price-rows small) {
+  color: #65746a;
+}
+
+.authority {
+  margin: 0;
+  padding: 0 14px 14px;
+  color: #59685e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.detail {
+  border: 1px solid #e4e8e3;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.detail > summary {
+  padding: 13px 14px;
+  color: #35584c;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.6;
+  cursor: pointer;
+  border-radius: 10px;
+}
+
+.detail > summary::marker {
+  color: #54756b;
+}
+
+.detail > summary:hover {
+  background: #f4f7f3;
+}
+
+.detail > summary:focus-visible {
+  outline: 2px solid #355c57;
+  outline-offset: 2px;
+}
+
+.detail[open] > summary {
+  border-bottom: 1px solid #e4e8e3;
+  border-radius: 10px 10px 0 0;
+}
+
+.detail > :global(.insight-card) {
+  border: 0;
+  background: transparent;
+}
+
+@container (min-width: 560px) {
+  .summaryFields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .summaryFields > :global(.price-estimate-card) {
+    border-top: 0;
+    border-left: 1px solid #e4e8e3;
+  }
+}

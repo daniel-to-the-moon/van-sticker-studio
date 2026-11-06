@@ -1,0 +1,75 @@
+{
+  "base": "20aee5d1136bcfbec9b2a992aa5fbdfa25ff9eaf",
+  "width": 2092,
+  "height": 752,
+  "aspect": 2.7819148936170213,
+  "checks": [
+    {
+      "lang": "en",
+      "component": "CoverageMeter",
+      "numbers": [
+        "24.9%",
+        "30%",
+        "30%",
+        "30%",
+        "35.4 ㎡",
+        "8.81 ㎡"
+      ],
+      "identical": true
+    },
+    {
+      "lang": "en",
+      "component": "PriceEstimateCard",
+      "numbers": [
+        "1.25",
+        "11.01 ㎡",
+        "18%",
+        "3,000",
+        "45%",
+        "55%",
+        "8,000",
+        "¥1,440",
+        "¥240",
+        "¥300",
+        "¥540",
+        "¥650",
+        "¥790"
+      ],
+      "identical": true
+    },
+    {
+      "lang": "zh",
+      "component": "CoverageMeter",
+      "numbers": [
+        "24.9%",
+        "30%",
+        "30%",
+        "30%",
+        "35.4 ㎡",
+        "8.81 ㎡"
+      ],
+      "identical": true
+    },
+    {
+      "lang": "zh",
+      "component": "PriceEstimateCard",
+      "numbers": [
+        "1.25",
+        "11.01 ㎡",
+        "18%",
+        "3,000",
+        "45%",
+        "55%",
+        "8,000",
+        "¥1,440",
+        "¥240",
+        "¥300",
+        "¥540",
+        "¥650",
+        "¥790"
+      ],
+      "identical": true
+    }
+  ],
+  "status": "passed"
+}

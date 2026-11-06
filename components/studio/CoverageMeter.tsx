@@ -35,13 +35,9 @@ export default function CoverageMeter({
       </div>
       <div className="coverage-value">
         <strong>{percent.toFixed(1)}%</strong>
-        <span>{t(lang, 'coverage.estimateTag')}</span>
       </div>
       <div className="coverage-bar" aria-hidden="true">
-        <span
-          className="coverage-bar-fill"
-          style={{ width: `${barWidth}%` }}
-        />
+        <span className="coverage-bar-fill" style={{ width: `${barWidth}%` }} />
         <i
           className="coverage-bar-threshold"
           style={{ left: `${thresholdLeft}%` }}
@@ -49,8 +45,7 @@ export default function CoverageMeter({
       </div>
       <div className="coverage-bar-caption">
         <span>
-          {t(lang, 'coverage.decalArea')} {decalAreaM2.toFixed(2)} ㎡ ·{' '}
-          {t(lang, 'coverage.estimateTag')}
+          {t(lang, 'coverage.decalArea')} {decalAreaM2.toFixed(2)} ㎡
         </span>
         <span>
           {t(lang, 'coverage.sideArea')} {totalSideAreaM2.toFixed(1)} ㎡
