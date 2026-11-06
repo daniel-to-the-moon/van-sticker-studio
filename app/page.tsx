@@ -73,6 +73,26 @@ const partName = (id: string, lang: Lang) =>
     lang,
     PART_KEYS[id] ?? (id.startsWith('window') ? 'part.window' : 'part.wiper'),
   );
+type GenerationAvailability =
+  | 'loading'
+  | 'not_configured'
+  | 'status_failed'
+  | 'configured';
+function generationAvailabilityFromPayload(
+  payload: unknown,
+): Exclude<GenerationAvailability, 'loading'> {
+  if (!payload || typeof payload !== 'object') return 'status_failed';
+  const configured = (payload as { configured?: unknown }).configured;
+  if (configured === true) return 'configured';
+  if (configured === false) return 'not_configured';
+  return 'status_failed';
+}
+const AVAILABILITY_NOTE: Record<GenerationAvailability, StringKey> = {
+  loading: 'page.aiChecking',
+  not_configured: 'page.aiSamples',
+  status_failed: 'page.aiStatusFailed',
+  configured: 'page.aiConnected',
+};
 export default function Home() {
   const [lang, setLang] = useState<Lang>('en');
   const [prompt, setPrompt] = useState('');
@@ -85,7 +105,10 @@ export default function Home() {
   const [applying, setApplying] = useState(false);
   const [slots, setSlots] = useState<Record<number, SlotStatus>>({});
   const [error, setError] = useState('');
-  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [availability, setAvailability] =
+    useState<GenerationAvailability>('loading');
+  const availabilityRef = useRef<GenerationAvailability>('loading');
+  const statusEpoch = useRef(0);
   const [ready, setReady] = useState(false);
   const [meta, setMeta] = useState<Metadata | null>(null);
   const [parts, setParts] = useState<Record<string, boolean>>({});
@@ -115,6 +138,9 @@ export default function Home() {
   const optionsRef = useRef(options);
   const langRef = useRef(lang);
   useEffect(() => {
+    availabilityRef.current = availability;
+  }, [availability]);
+  useEffect(() => {
     optionsRef.current = options;
   }, [options]);
   useEffect(() => {
@@ -133,13 +159,29 @@ export default function Home() {
     setSequence(false);
   }, []);
   useEffect(() => {
-    void fetch('/api/status')
-      .then((r) => r.json())
-      .then((d: unknown) =>
-        setConfigured(Boolean((d as { configured?: boolean }).configured)),
-      )
-      .catch(() => setConfigured(false));
+    let active = true;
+    const readStatus = () => {
+      const epoch = ++statusEpoch.current;
+      void fetch('/api/status')
+        .then(async (response) => {
+          if (!response.ok) throw new Error('status');
+          return (await response.json()) as unknown;
+        })
+        .then((payload) => {
+          if (!active || epoch !== statusEpoch.current) return;
+          setAvailability(generationAvailabilityFromPayload(payload));
+        })
+        .catch(() => {
+          if (!active || epoch !== statusEpoch.current) return;
+          setAvailability('status_failed');
+        });
+    };
+    readStatus();
+    const onFocus = () => readStatus();
+    window.addEventListener('focus', onFocus);
     return () => {
+      active = false;
+      window.removeEventListener('focus', onFocus);
       generation.current?.abort();
       timers.current.forEach(clearTimeout);
       if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -187,6 +229,8 @@ export default function Home() {
     description = prompt,
     externalSignal?: AbortSignal,
   ) => {
+    if (availabilityRef.current !== 'configured')
+      throw Error(t(langRef.current, 'error.generationUnavailable'));
     if (generation.current || applying)
       throw Error(t(langRef.current, 'error.busyWait'));
     if (!ready) throw Error(t(langRef.current, 'error.waitVehicle'));
@@ -216,7 +260,11 @@ export default function Home() {
       });
       if (!response.ok) {
         const d = (await response.json()) as { code?: string; error?: string };
-        if (d.code === 'AI_NOT_CONFIGURED') setConfigured(false);
+        if (d.code === 'AI_NOT_CONFIGURED') {
+          statusEpoch.current += 1;
+          availabilityRef.current = 'not_configured';
+          setAvailability('not_configured');
+        }
         throw Error(d.error || t(langRef.current, 'error.generateFailedRetry'));
       }
       if (!response.body) throw Error(t(langRef.current, 'error.noStreamData'));
@@ -440,7 +488,12 @@ export default function Home() {
         ready,
         busy,
         applying,
-        configured,
+        configured:
+          availability === 'configured'
+            ? true
+            : availability === 'loading'
+              ? null
+              : false,
         view,
         environment,
         presentation,
@@ -454,6 +507,12 @@ export default function Home() {
     },
     lang,
   );
+  const canSubmitGeneration =
+    availability === 'configured' &&
+    !busy &&
+    !applying &&
+    ready &&
+    prompt.trim().length > 0;
   const selectedOption = options.find((s) => s.id === selected);
   const isSample = options.every((s) => s.source === 'sample');
   return (
@@ -523,12 +582,8 @@ export default function Home() {
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     onKeyDown={(e) => {
-                      if (
-                        (e.metaKey || e.ctrlKey) &&
-                        e.key === 'Enter' &&
-                        !busy &&
-                        prompt.trim()
-                      ) {
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                        if (!canSubmitGeneration) return;
                         e.preventDefault();
                         void generate().catch(() => {});
                       }
@@ -558,7 +613,8 @@ export default function Home() {
                 </div>
                 <button
                   className="generate-button"
-                  disabled={busy || applying || !ready || !prompt.trim()}
+                  disabled={!canSubmitGeneration}
+                  data-generation-availability={availability}
                   onClick={() => void generate().catch(() => {})}
                 >
                   {busy ? (
@@ -607,16 +663,28 @@ export default function Home() {
                     </button>
                   </output>
                 ) : (
-                  <p className="ai-note">
+                  <output
+                    className="ai-note"
+                    data-generation-availability={availability}
+                    aria-busy={availability === 'loading'}
+                  >
                     <span
-                      className={`status-dot ${configured ? 'connected' : ''}`}
+                      className={`status-dot ${availability === 'configured' ? 'connected' : ''}`}
                     />
-                    {configured
-                      ? t(lang, 'page.aiConnected')
-                      : configured === false
-                        ? t(lang, 'page.aiSamples')
-                        : t(lang, 'page.aiConnecting')}
-                  </p>
+                    {availability === 'loading' ? (
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          display: 'inline-block',
+                          width: 148,
+                          height: 8,
+                          borderRadius: 999,
+                          background: '#d5dbd2',
+                        }}
+                      />
+                    ) : null}
+                    {t(lang, AVAILABILITY_NOTE[availability])}
+                  </output>
                 )}
                 {error && (
                   <div className="inline-error" role="alert">

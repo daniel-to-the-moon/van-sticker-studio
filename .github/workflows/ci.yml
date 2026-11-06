@@ -26,3 +26,27 @@ jobs:
       - run: npm test
       - run: npx tsc --noEmit
       - run: npm run build
+      - name: Scan client build for secret markers
+        shell: bash
+        run: |
+          if [[ -L dist || -L dist/client || ! -d dist || ! -d dist/client ]]; then
+            printf '%s\n' 'Client secret marker scan failed.'
+            exit 1
+          fi
+          if client_scan_symlink="$(find -P dist/client -type l -printf x -quit 2>/dev/null)"; then
+            if [[ -n "$client_scan_symlink" ]]; then
+              printf '%s\n' 'Client secret marker scan failed.'
+              exit 1
+            fi
+          else
+            client_scan_status=$?
+            printf '%s\n' 'Client secret marker scan failed.'
+            exit "$client_scan_status"
+          fi
+          if node tools/scan-dist-secrets.mjs dist/client >/dev/null 2>&1; then
+            printf '%s\n' 'Client secret marker scan passed.'
+          else
+            client_scan_status=$?
+            printf '%s\n' 'Client secret marker scan failed.'
+            exit "$client_scan_status"
+          fi
