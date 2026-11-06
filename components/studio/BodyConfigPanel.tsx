@@ -1,10 +1,12 @@
 'use client';
 import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { t, type Lang, type StringKey } from '@/lib/i18n';
 import type {
   Accessory,
   AccessoryId,
   BodyConfig,
+  ChassisTrio,
   ConstraintLevel,
   ConstraintResult,
   RoofFixtureKind,
@@ -12,10 +14,13 @@ import type {
   SlideOut,
   SlideOutSide,
   VehicleKind,
-  WheelbaseClass,
 } from '@/lib/parametric-body';
-import { MODEL_CATALOG } from '@/lib/announcement-db';
 import {
+  MODEL_CATALOG,
+  announcedChassisPoints,
+} from '@/lib/announcement-db';
+import {
+  REGISTRY_ENTRIES,
   configForRegisteredModel,
   isModelSelectable,
   registryStatus,
@@ -25,8 +30,6 @@ import {
   DEFAULT_BODY_CONFIG,
   KIND_DEFAULTS,
   MIN_TOTAL_OVERHANG_MM,
-  MOTORHOME_KINDS,
-  OTHER_KINDS,
   ROOF_CLOSED_HEIGHT_MM,
   SLIDE_OUT_DEPTH_MAX_MM,
   SLIDE_OUT_DEPTH_MIN_MM,
@@ -34,10 +37,8 @@ import {
   SLIDE_OUT_MAX_COUNT,
   SLIDE_OUT_MAX_LENGTH_MM,
   SLIDE_OUT_MIN_LENGTH_MM,
-  TOWABLE_KINDS,
   TRAILER_HITCH_MM,
   VEHICLE_ENVELOPES,
-  WHEELBASE_PRESETS_MM,
   accessoryPositionRange,
   clampAccessoryPositions,
   defaultAccessoryPosition,
@@ -47,6 +48,9 @@ import {
   repairAttachments,
   repairSlideOuts,
   resolveSlideOutCenter,
+  snapChassisTrio,
+  trioLengthMm,
+  trioOf,
 } from '@/lib/parametric-body';
 
 const CONSTRAINT_KEY: Record<string, StringKey> = {
@@ -133,12 +137,6 @@ const ROOF_KEY: Record<RoofType, StringKey> = {
   'split-pop-up': 'bodylab.roofSplitPopUp',
 };
 
-const WHEELBASE_KEY: Record<WheelbaseClass, StringKey> = {
-  short: 'bodylab.wheelbaseShort',
-  medium: 'bodylab.wheelbaseMedium',
-  long: 'bodylab.wheelbaseLong',
-};
-
 const KIND_KEY: Record<VehicleKind, StringKey> = {
   'motorhome-a': 'bodylab.kindMotorhomeA',
   'motorhome-b': 'bodylab.kindMotorhomeB',
@@ -153,25 +151,6 @@ const KIND_KEY: Record<VehicleKind, StringKey> = {
   offroad: 'bodylab.kindOffroad',
 };
 
-const EXAMPLE_KEY: Record<VehicleKind, StringKey> = {
-  'motorhome-a': 'bodylab.exMotorhomeA',
-  'motorhome-b': 'bodylab.exMotorhomeB',
-  'motorhome-c': 'bodylab.exMotorhomeC',
-  'motorhome-t': 'bodylab.exMotorhomeT',
-  'towable-a': 'bodylab.exTowableA',
-  'towable-b': 'bodylab.exTowableB',
-  'towable-c': 'bodylab.exTowableC',
-  'towable-d': 'bodylab.exTowableD',
-  camper: 'bodylab.exCamper',
-  'micro-c': 'bodylab.exMicroC',
-  offroad: 'bodylab.exOffroad',
-};
-
-const KIND_GROUPS: { label: StringKey; kinds: readonly VehicleKind[] }[] = [
-  { label: 'bodylab.kindMotorhome', kinds: MOTORHOME_KINDS },
-  { label: 'bodylab.kindTowable', kinds: TOWABLE_KINDS },
-  { label: 'bodylab.kindOther', kinds: OTHER_KINDS },
-];
 
 const LEVEL_ICON: Record<ConstraintLevel, typeof CheckCircle2> = {
   pass: CheckCircle2,
@@ -188,6 +167,12 @@ interface Props {
   popKey: number;
   /** Fired when any slider drag ends (pointer or keyboard release). */
   onRelease: () => void;
+  /**
+   * Fired when a B-type trio slider is released with a snapped value:
+   * the page glides the model to it (the plain onRelease bounce still
+   * fires separately). Only called when the snapped value differs.
+   */
+  onSnapRelease: (next: BodyConfig) => void;
   /**
    * Slice 5 registry gate: the selected registered model id, or null
    * for the demo view. Only registered models are selectable; the
@@ -233,6 +218,7 @@ export default function BodyConfigPanel({
   onChange,
   popKey,
   onRelease,
+  onSnapRelease,
   registeredModelId,
   onSelectModel,
 }: Props) {
@@ -248,14 +234,6 @@ export default function BodyConfigPanel({
       heightMm: Math.min(
         Math.max(ROOF_CLOSED_HEIGHT_MM[roofType], env.heightMinMm),
         env.heightMaxMm,
-      ),
-    });
-  const setWheelbase = (wheelbaseClass: WheelbaseClass) =>
-    set({
-      wheelbaseClass,
-      wheelbaseMm: Math.min(
-        WHEELBASE_PRESETS_MM[wheelbaseClass],
-        config.lengthMm - MIN_TOTAL_OVERHANG_MM,
       ),
     });
   const setLength = (lengthMm: number) => {
@@ -354,6 +332,40 @@ export default function BodyConfigPanel({
     : Math.min(env.wheelbaseMaxMm, config.lengthMm - MIN_TOTAL_OVERHANG_MM);
   const registered = registeredModelId !== null;
   const status = registryStatus();
+  const points = useMemo(
+    () => announcedChassisPoints(REGISTRY_ENTRIES),
+    [],
+  );
+  const tabKinds = useMemo(() => {
+    const kinds: VehicleKind[] = [];
+    for (const model of MODEL_CATALOG) {
+      if (!kinds.includes(model.kind)) kinds.push(model.kind);
+    }
+    return kinds;
+  }, []);
+  const [tabKind, setTabKind] = useState<VehicleKind>(config.vehicleKind);
+  const isB = config.vehicleKind === 'motorhome-b';
+  const trio = trioOf(config);
+  const trioRange = (values: readonly number[], current: number) => ({
+    min: Math.min(values[0] ?? current, current),
+    max: Math.max(values[values.length - 1] ?? current, current),
+  });
+  const wheelbaseRange = trioRange(points.wheelbases, trio.wheelbaseMm);
+  const frontRange = trioRange(points.fronts, trio.frontOverhangMm);
+  const rearRange = trioRange(points.rears, trio.rearOverhangMm);
+  const setTrio = (patch: Partial<ChassisTrio>) => {
+    const next = { ...trio, ...patch };
+    onChange({ ...config, ...next, lengthMm: trioLengthMm(next) });
+  };
+  const handleTrioRelease = (dimension: keyof ChassisTrio) => {
+    const snapped = snapChassisTrio(trio, points);
+    const value = snapped[dimension];
+    if (value !== trio[dimension]) {
+      const next = { ...trio, [dimension]: value };
+      onSnapRelease({ ...config, ...next, lengthMm: trioLengthMm(next) });
+    }
+    onRelease();
+  };
   /**
    * Core dimensions are fixed in registered mode (announcement
    * values) and shown as prototype defaults in demo mode; either way
@@ -394,55 +406,69 @@ export default function BodyConfigPanel({
           <p style={{ fontSize: 13, margin: '0 0 6px' }}>
             {t(lang, 'bodylab.model')}
           </p>
-          <select
-            aria-label={t(lang, 'bodylab.model')}
-            value={registeredModelId ?? ''}
-            onChange={(event) => {
-              const value = event.target.value;
-              onSelectModel(value === '' ? null : value);
-            }}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {tabKinds.map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                aria-pressed={tabKind === kind}
+                onClick={() => {
+                  if (registeredModelId !== null) {
+                    setTabKind(kind);
+                  } else {
+                    setTabKind(kind);
+                    setKind(kind);
+                  }
+                }}
+                style={toggleStyle(tabKind === kind)}
+              >
+                {t(lang, KIND_KEY[kind])}
+              </button>
+            ))}
+          </div>
+          <div
             style={{
-              width: '100%',
-              padding: '8px 10px',
-              borderRadius: 10,
-              border: '1px solid #c9bba6',
-              background: 'transparent',
-              fontSize: 13,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              marginTop: 8,
             }}
           >
-            <option value="">{t(lang, 'bodylab.modelDemo')}</option>
-            {KIND_GROUPS.map((group) => {
-              const models = MODEL_CATALOG.filter((model) =>
-                group.kinds.includes(model.kind),
-              );
-              if (models.length === 0) return null;
-              return (
-                <optgroup
-                  key={group.label}
-                  label={t(lang, group.label)}
-                >
-                  {models.map((model) => {
-                    const selectable = isModelSelectable(model.id);
-                    return (
-                      <option
-                        key={model.id}
-                        value={model.id}
-                        disabled={!selectable}
-                      >
-                        {model.name} · {t(lang, KIND_KEY[model.kind])} ·{' '}
-                        {t(
-                          lang,
-                          selectable
-                            ? 'bodylab.modelRegistered'
-                            : 'bodylab.modelPending',
-                        )}
-                      </option>
-                    );
-                  })}
-                </optgroup>
-              );
-            })}
-          </select>
+            <button
+              type="button"
+              aria-pressed={registeredModelId === null}
+              onClick={() => onSelectModel(null)}
+              style={toggleStyle(registeredModelId === null)}
+            >
+              {t(lang, 'bodylab.modelDemo')}
+            </button>
+            {MODEL_CATALOG.filter((model) => model.kind === tabKind).map(
+              (model) => {
+                const selectable = isModelSelectable(model.id);
+                return (
+                  <button
+                    key={model.id}
+                    type="button"
+                    aria-pressed={registeredModelId === model.id}
+                    disabled={!selectable}
+                    onClick={() => {
+                      setTabKind(model.kind);
+                      onSelectModel(model.id);
+                    }}
+                    style={toggleStyle(registeredModelId === model.id)}
+                  >
+                    {model.name} ·{' '}
+                    {t(
+                      lang,
+                      selectable
+                        ? 'bodylab.modelRegistered'
+                        : 'bodylab.modelPending',
+                    )}
+                  </button>
+                );
+              },
+            )}
+          </div>
           <p style={{ fontSize: 12, margin: '6px 0 0', opacity: 0.75 }}>
             {t(lang, 'bodylab.registryStatus', {
               complete: status.complete,
@@ -456,70 +482,56 @@ export default function BodyConfigPanel({
             )}
           </p>
         </section>
-        <fieldset
-          disabled
-          aria-label={t(lang, 'bodylab.kind')}
-          style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
-        >
-        <section>
-          <p style={{ fontSize: 13, margin: '0 0 6px' }}>
-            {t(lang, 'bodylab.kind')}
-          </p>
-          <p style={{ fontSize: 12, margin: '0 0 6px', opacity: 0.75 }}>
-            {t(lang, 'bodylab.kindMotorhome')}
-          </p>
-          <Segmented<VehicleKind>
-            options={MOTORHOME_KINDS.map((key) => ({
-              value: key,
-              label: t(lang, KIND_KEY[key]),
-            }))}
-            active={config.vehicleKind}
-            onPick={setKind}
-          />
-          <p style={{ fontSize: 12, margin: '10px 0 6px', opacity: 0.75 }}>
-            {t(lang, 'bodylab.kindTowable')}
-          </p>
-          <Segmented<VehicleKind>
-            options={TOWABLE_KINDS.map((key) => ({
-              value: key,
-              label: t(lang, KIND_KEY[key]),
-            }))}
-            active={config.vehicleKind}
-            onPick={setKind}
-          />
-          <p style={{ fontSize: 12, margin: '10px 0 6px', opacity: 0.75 }}>
-            {t(lang, 'bodylab.kindOther')}
-          </p>
-          <Segmented<VehicleKind>
-            options={OTHER_KINDS.map((key) => ({
-              value: key,
-              label: t(lang, KIND_KEY[key]),
-            }))}
-            active={config.vehicleKind}
-            onPick={setKind}
-          />
-          <p style={{ fontSize: 13, margin: '10px 0 0' }}>
-            {t(lang, KIND_KEY[config.vehicleKind])} ·{' '}
-            {t(lang, EXAMPLE_KEY[config.vehicleKind])}
-          </p>
-          <p style={{ fontSize: 12, margin: '6px 0 0', opacity: 0.75 }}>
-            {t(lang, 'bodylab.kindNote')}
-          </p>
-        </section>
-        {config.vehicleKind === 'motorhome-b' && (
+        {isB && (
           <section>
-            <p style={{ fontSize: 13, margin: '0 0 6px' }}>
-              {t(lang, 'bodylab.wheelbase')}
-            </p>
-            <Segmented<WheelbaseClass>
-              options={(Object.keys(WHEELBASE_KEY) as WheelbaseClass[]).map(
-                (key) => ({ value: key, label: t(lang, WHEELBASE_KEY[key]) }),
-              )}
-              active={config.wheelbaseClass}
-              onPick={setWheelbase}
+            <Slider
+              label={t(lang, 'bodylab.wheelbaseMm')}
+              value={trio.wheelbaseMm}
+              min={wheelbaseRange.min}
+              max={wheelbaseRange.max}
+              step={5}
+              unit="mm"
+              popKey={popKey}
+              onRelease={() => handleTrioRelease('wheelbaseMm')}
+              onPick={(wheelbaseMm) => setTrio({ wheelbaseMm })}
             />
+            <Slider
+              label={t(lang, 'bodylab.frontOverhang')}
+              value={trio.frontOverhangMm}
+              min={frontRange.min}
+              max={frontRange.max}
+              step={5}
+              unit="mm"
+              popKey={popKey}
+              onRelease={() => handleTrioRelease('frontOverhangMm')}
+              onPick={(frontOverhangMm) => setTrio({ frontOverhangMm })}
+            />
+            <Slider
+              label={t(lang, 'bodylab.rearOverhang')}
+              value={trio.rearOverhangMm}
+              min={rearRange.min}
+              max={rearRange.max}
+              step={5}
+              unit="mm"
+              popKey={popKey}
+              onRelease={() => handleTrioRelease('rearOverhangMm')}
+              onPick={(rearOverhangMm) => setTrio({ rearOverhangMm })}
+            />
+            <p style={{ fontSize: 13, margin: '6px 0 0' }}>
+              {t(lang, 'bodylab.lengthDerived', { value: config.lengthMm })}
+            </p>
+            <p style={{ fontSize: 12, margin: '6px 0 0', opacity: 0.75 }}>
+              {t(lang, 'bodylab.snapNote')}
+            </p>
           </section>
         )}
+        <fieldset
+          disabled
+          aria-label={t(lang, 'bodylab.fixedCore')}
+          style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+        >
+        {!isB && (
+          <>
         <Slider
           label={
             towable
@@ -548,6 +560,8 @@ export default function BodyConfigPanel({
           onRelease={onRelease}
           onPick={setLength}
         />
+          </>
+        )}
         <Slider
           label={t(lang, 'bodylab.width')}
           value={config.widthMm}

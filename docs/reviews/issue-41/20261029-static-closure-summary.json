@@ -1,0 +1,39 @@
+{
+  "originalHead": "11988831d0252d7842e4b6e4b4cb1155854dec57",
+  "auditEngine": "TypeScript 5.9.3 static program graph only",
+  "nativeLintEngine": "oxlint 1.76.0 / tsgolint 7.0.2001",
+  "rootFiles": [
+    "/workspace/van-sticker-studio/tests/vehicle-palettes.test.ts"
+  ],
+  "projectFiles": [
+    "lib/i18n.ts",
+    "lib/vehicle-palettes.ts",
+    "lib/wrap-eligibility.ts",
+    "lib/wrap-layout.ts",
+    "lib/vehicle-wrap-editor.ts",
+    "lib/drafting-edges.ts",
+    "lib/drawing-silhouette.ts",
+    "lib/wiper-calibration.ts",
+    "lib/vehicle-assets.ts",
+    "lib/stage-motion.ts",
+    "lib/stickers.ts",
+    "components/studio/scene-engine.ts",
+    "tests/vehicle-palettes.test.ts"
+  ],
+  "staticSourceFiles": 1107,
+  "readFilesOriginalAudit": 1131,
+  "readFilesNearestConfigAudit": 1133,
+  "protectedPathAccesses": [],
+  "compilerOptionsInheritedUnchanged": true,
+  "nearestClosureMatchesOriginalSingleRootClosure": true,
+  "nativeProgramSourceFiles": 1114,
+  "nativeProgramCount": 1,
+  "nativeConfig": "tests/tsconfig.json (temporary, removed before commit)",
+  "readsetSHA256": "8d94b1dd30d87c6004617415b9ed336100aeccc61207d2ee1ca1c1abbe2b773e",
+  "readsetFile": "20261029-static-readset.sha256",
+  "rawLocalAuditPreservation": [
+    "/tmp/issue41-static-closure-original.json",
+    "/tmp/issue41-static-closure-nearest.json"
+  ],
+  "limit": "This is a static dependency/configuration audit, not a syscall trace. The native backend uses a different TypeScript version; its source count is not represented as the audit engine count."
+}

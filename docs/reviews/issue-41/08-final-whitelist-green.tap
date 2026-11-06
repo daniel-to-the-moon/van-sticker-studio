@@ -1,0 +1,18 @@
+✔ the ten selectable palettes retain all approved colors and translated names (2.637064ms)
+✔ palette uniforms start disabled and compose before the existing eligible decal layer (8.31252ms)
+✔ all palette switches and restore preserve the actual decal, placements, lock, hook and excluded surfaces (3.373355ms)
+✔ the engine retains a pre-load choice, forwards it to the editor and keeps colors when clearing a sticker (1.121591ms)
+✔ adjacent faces share coordinates at all four corners without mirroring lettering (1.18728ms)
+✔ a decal spanning the rear seam can be grabbed on either adjoining face (0.248054ms)
+✔ invalid or extreme drag/scale values stay finite and keep the design within body height (0.387103ms)
+✔ locking leaves the camera free and blocks every decal edit entry point (7.937934ms)
+✔ right-clicking a locked decal opens its menu and unlocking restores actual dragging (8.40566ms)
+✔ the decal menu dismisses outside or with Escape without unlocking (2.512988ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 250.466564

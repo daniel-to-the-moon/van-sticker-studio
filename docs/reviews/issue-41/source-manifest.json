@@ -1,0 +1,11 @@
+{
+  "app/page.tsx": "04808edf6f23dbcb0a91b4dc987106f46df5f945bccb90af533aff669e0c287c",
+  "components/studio/VehicleScene.tsx": "a2e48bf37557321442566dc8b7c092e97efc9c3ed6365ad379cd37fa7107d443",
+  "components/studio/scene-engine.ts": "c0cdd2ccc11d2c6de5f2a6f6ea5c04d50d233573407316eceef7765e10b91ba1",
+  "lib/vehicle-wrap-editor.ts": "38d0731e97cdc93cb6f9ede5bcd1cfe3fa0684d7b01c2a32faebbc88c627dcc3",
+  "lib/vehicle-palettes.ts": "7268089da4c42b570770e7bfa456f552c685d147874f8d1402d38d0cd7882686",
+  "components/studio/PalettePicker.tsx": "30b4f353db252df2d796705e1dcce199b9e0145169a2908c1a6da9d5264b5fe0",
+  "components/studio/PalettePicker.module.css": "3a5e1e552efa8d24ed66f9a2075e6ada58f63d6b63ac5a229d3e4361307129e1",
+  "tests/vehicle-palettes.test.ts": "33a5473625d52c3dfe411b38532118097e308b80f5b67ffdbd7a836900ff1509",
+  "lib/i18n.ts": "72f0ccc145508ef38c3969a513ddd86258c75e3acd0f47415dc804ab535fcccc"
+}

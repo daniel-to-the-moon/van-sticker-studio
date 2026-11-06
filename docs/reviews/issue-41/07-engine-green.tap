@@ -1,0 +1,12 @@
+✔ the ten selectable palettes retain all approved colors and translated names (2.710616ms)
+✔ palette uniforms start disabled and compose before the existing eligible decal layer (5.925611ms)
+✔ all palette switches and restore preserve the actual decal, placements, lock, hook and excluded surfaces (6.351873ms)
+✔ the engine retains a pre-load choice, forwards it to the editor and keeps colors when clearing a sticker (1.983249ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 218.876447

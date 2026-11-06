@@ -25,6 +25,7 @@
  */
 import {
   KIND_DEFAULTS,
+  type AnnouncedChassisPoints,
   type BodyConfig,
   type VehicleKind,
 } from './parametric-body.ts';
@@ -290,6 +291,8 @@ export function configForEntry(
     widthMm: verified.width_mm as number,
     heightMm: verified.height_mm as number,
     wheelbaseMm: verified.wheelbase_mm as number,
+    frontOverhangMm: verified.front_overhang_mm as number,
+    rearOverhangMm: verified.rear_overhang_mm as number,
     estimatedMassKg: verified.gross_mass_kg as number,
     slideOuts: [],
     accessories: [],
@@ -306,4 +309,29 @@ export function configForModelIn(
   const entry = entryForModel(entries, modelId);
   if (entry === undefined) return null;
   return configForEntry(model, entry);
+}
+
+/**
+ * Announced snap points per trio dimension, from complete rows only.
+ * Partial rows never contribute (their figures are unverified), so a
+ * new complete row updates the snap sets with no code change.
+ */
+export function announcedChassisPoints(
+  entries: readonly RegistryEntry[],
+): AnnouncedChassisPoints {
+  const wheelbases = new Set<number>();
+  const fronts = new Set<number>();
+  const rears = new Set<number>();
+  for (const entry of entries) {
+    if (!isEntryComplete(entry)) continue;
+    wheelbases.add(entry.verified.wheelbase_mm as number);
+    fronts.add(entry.verified.front_overhang_mm as number);
+    rears.add(entry.verified.rear_overhang_mm as number);
+  }
+  const sorted = (set: Set<number>) => [...set].sort((a, b) => a - b);
+  return {
+    wheelbases: sorted(wheelbases),
+    fronts: sorted(fronts),
+    rears: sorted(rears),
+  };
 }

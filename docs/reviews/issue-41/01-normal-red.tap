@@ -1,0 +1,129 @@
+✖ the ten selectable palettes retain all approved colors and translated names (3.25073ms)
+✖ palette uniforms start disabled and compose before the existing eligible decal layer (4.107762ms)
+✖ all palette switches and restore preserve the actual decal, placements, lock, hook and excluded surfaces (1.547763ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 0
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 154.486273
+
+✖ failing tests:
+
+test at tests/vehicle-palettes.test.ts:23:6
+✖ the ten selectable palettes retain all approved colors and translated names (3.25073ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+  + []
+  - [
+  -   [
+  -     '#F3F2EC',
+  -     '#78A9CC',
+  -     '#D9DDE1'
+  -   ],
+  -   [
+  -     '#F2F2EE',
+  -     '#6F9A86',
+  -     '#D9DDE1'
+  -   ],
+  -   [
+  -     '#F1EEE4',
+  -     '#E0B33A',
+  -     '#5A4632'
+  -   ],
+  -   [
+  -     '#EFE7D6',
+  -     '#A8262E',
+  -     '#D9D1BD'
+  -   ],
+  -   [
+  -     '#F4F4F0',
+  -     '#3EB2AC',
+  -     '#E9813A'
+  -   ],
+  -   [
+  -     '#F2F2EE',
+  -     '#E2702B',
+  -     '#8E9396'
+  -   ],
+  -   [
+  -     '#F0EDE4',
+  -     '#2F5B45',
+  -     '#C8A24A'
+  -   ],
+  -   [
+  -     '#F1ECDF',
+  -     '#C4A47C',
+  -     '#7A5A3E'
+  -   ],
+  -   [
+  -     '#F5F3EF',
+  -     '#E8A3B4',
+  -     '#9ED6C3'
+  -   ],
+  -   [
+  -     '#F2F2EE',
+  -     '#34445A',
+  -     '#C9CDD1'
+  -   ]
+  - ]
+  
+      at TestContext.<anonymous> (file:///workspace/van-sticker-studio/tests/vehicle-palettes.test.ts:24:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.start (node:internal/test_runner/test:1242:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [],
+    expected: [ [ '#F3F2EC', '#78A9CC', '#D9DDE1' ], [ '#F2F2EE', '#6F9A86', '#D9DDE1' ], [ '#F1EEE4', '#E0B33A', '#5A4632' ], [ '#EFE7D6', '#A8262E', '#D9D1BD' ], [ '#F4F4F0', '#3EB2AC', '#E9813A' ], [ '#F2F2EE', '#E2702B', '#8E9396' ], [ '#F0EDE4', '#2F5B45', '#C8A24A' ], [ '#F1ECDF', '#C4A47C', '#7A5A3E' ], [ '#F5F3EF', '#E8A3B4', '#9ED6C3' ], [ '#F2F2EE', '#34445A', '#C9CDD1' ] ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/vehicle-palettes.test.ts:90:6
+✖ palette uniforms start disabled and compose before the existing eligible decal layer (4.107762ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  undefined !== 0
+  
+      at TestContext.<anonymous> (file:///workspace/van-sticker-studio/tests/vehicle-palettes.test.ts:93:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/vehicle-palettes.test.ts:103:6
+✖ all palette switches and restore preserve the actual decal, placements, lock, hook and excluded surfaces (1.547763ms)
+  AssertionError [ERR_ASSERTION]: the independent palette setter must exist
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at TestContext.<anonymous> (file:///workspace/van-sticker-studio/tests/vehicle-palettes.test.ts:106:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

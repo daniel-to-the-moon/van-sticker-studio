@@ -1,0 +1,11 @@
+✔ the ten selectable palettes retain all approved colors and translated names (2.757328ms)
+✔ palette uniforms start disabled and compose before the existing eligible decal layer (6.647264ms)
+✔ all palette switches and restore preserve the actual decal, placements, lock, hook and excluded surfaces (3.472506ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 266.695866

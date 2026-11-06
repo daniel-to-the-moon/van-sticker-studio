@@ -26,14 +26,17 @@ import {
   UnlockKeyhole,
 } from 'lucide-react';
 import type { WrapEditState, WrapHintCode } from '@/lib/vehicle-wrap-editor';
+import type { VehiclePalette } from '@/lib/vehicle-palettes';
 export interface VehicleHandle {
   applySticker: (s: Sticker | null) => Promise<void>;
   setView: (view: string) => void;
   getState: () => unknown;
+  exportDrawing: (viewId: string) => { dataUrl: string; filename: string };
 }
 interface Props {
   lang: Lang;
   presentation: Presentation;
+  palette: VehiclePalette | null;
   generating: boolean;
   onCommit: (sticker: Sticker | null) => void;
   parts: Record<string, boolean>;
@@ -102,6 +105,27 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
         },
         setView: (view) => engine.current?.setView(view),
         getState: () => engine.current?.getState(),
+        exportDrawing(viewId) {
+          if (!engine.current)
+            throw Error(t(latest.current.lang, 'export.notReady'));
+          try {
+            return engine.current.exportDrawing(viewId);
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              error.message === 'export-while-generating'
+            )
+              throw Error(t(latest.current.lang, 'export.rejectedGenerating'));
+            if (
+              error instanceof Error &&
+              error.message === 'unknown-drawing-view'
+            )
+              throw Error(t(latest.current.lang, 'error.unknownView'));
+            if (error instanceof Error && error.message === 'model-not-ready')
+              throw Error(t(latest.current.lang, 'error.waitVehicle'));
+            throw Error(t(latest.current.lang, 'export.failed'));
+          }
+        },
       }),
       [],
     );
@@ -120,6 +144,7 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
               engine.current?.setWipers(latest.current.wipers);
               engine.current?.setEnvironment(latest.current.environment);
               engine.current?.setGenerating(latest.current.generating);
+              engine.current?.setPalette(latest.current.palette);
               engine.current?.setPresentation(latest.current.presentation);
               host.current
                 ?.querySelector('canvas')
@@ -141,6 +166,9 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
               }
             },
           });
+          // The lazy engine can be created after the user already chose colors.
+          engine.current.setPalette(latest.current.palette);
+          engine.current.setPresentation(latest.current.presentation);
         } catch {
           setError(t(latest.current.lang, 'scene.webglUnsupported'));
         }
@@ -165,6 +193,7 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
       () => engine.current?.setPresentation(props.presentation),
       [props.presentation],
     );
+    useEffect(() => engine.current?.setPalette(props.palette), [props.palette]);
     useEffect(() => engine.current?.setParts(props.parts), [props.parts]);
     useEffect(() => engine.current?.setWipers(props.wipers), [props.wipers]);
     useEffect(

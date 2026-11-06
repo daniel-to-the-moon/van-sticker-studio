@@ -1,0 +1,102 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const repo = '/workspace/van-sticker-studio';
+const ts = require(repo + '/node_modules/typescript');
+const config = JSON.parse(fs.readFileSync(repo + '/tsconfig.json', 'utf8'));
+const converted = ts.convertCompilerOptionsFromJson(config.compilerOptions, repo);
+if (converted.errors.length) throw new Error('Cannot establish the original compiler options');
+let options = converted.options;
+const root = repo + '/tests/vehicle-palettes.test.ts';
+const reads = new Map();
+const blocked = [];
+const forbidden = /(?:^|\/)(?:\.openai|\.aws|\.codex|\.git|\.ssh|\.env(?:\.[^/]*)?|\.dev\.vars|\.npmrc|credentials?)(?:\/|$)/i;
+function check(p) {
+  const full = path.resolve(p);
+  if (forbidden.test(full)) {
+    blocked.push(full);
+    throw new Error('Static audit stopped before accessing a protected path');
+  }
+  return full;
+}
+function metadata(p, operation) {
+  check(p);
+  try { return operation(); } catch (e) {
+    if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return undefined;
+    throw e;
+  }
+}
+function read(p) {
+  const full = check(p);
+  const real = metadata(full, () => fs.realpathSync(full));
+  if (!real) return undefined;
+  check(real);
+  const localCode = real.startsWith(repo + '/') && /\.(?:[cm]?[jt]sx?)$/.test(real);
+  const packageMetadata = real === repo + '/package.json' ||
+    (real.startsWith(repo + '/node_modules/') && path.basename(real) === 'package.json');
+  const publicConfig = real === repo + '/tsconfig.json' || real === repo + '/tests/tsconfig.json';
+  if (!localCode && !packageMetadata && !publicConfig) {
+    blocked.push(real);
+    throw new Error('Static audit encountered an unapproved file kind; no contents read');
+  }
+  const text = fs.readFileSync(real, 'utf8');
+  reads.set(real, crypto.createHash('sha256').update(text).digest('hex'));
+  return text;
+}
+const host = {
+  getSourceFile(fileName, languageVersion) {
+    const text = read(fileName);
+    return text === undefined ? undefined : ts.createSourceFile(
+      fileName, text, languageVersion, true, ts.getScriptKindFromFileName(fileName),
+    );
+  },
+  getDefaultLibFileName: () => ts.getDefaultLibFilePath(options),
+  getDefaultLibLocation: () => path.dirname(ts.getDefaultLibFilePath(options)),
+  getCurrentDirectory: () => repo,
+  getCanonicalFileName: (p) => p,
+  useCaseSensitiveFileNames: () => true,
+  getNewLine: () => '\n',
+  readFile: read,
+  fileExists: (p) => !!metadata(p, () => fs.statSync(p).isFile()),
+  directoryExists: (p) => !!metadata(p, () => fs.statSync(p).isDirectory()),
+  getDirectories: (p) => metadata(p, () => fs.readdirSync(p, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory()).map((entry) => entry.name)) || [],
+  realpath: (p) => metadata(p, () => check(fs.realpathSync(p))) || p,
+  writeFile() { throw new Error('Static dependency audit must never emit files'); },
+};
+const configPath = repo + '/tests/tsconfig.json';
+const parsed = ts.parseJsonConfigFileContent(JSON.parse(read(configPath)), {
+  ...host,
+  useCaseSensitiveFileNames: true,
+  readDirectory() { throw new Error('Audit refused a config glob; roots must be explicit'); },
+}, path.dirname(configPath), undefined, configPath);
+if (parsed.errors.length || parsed.fileNames.length !== 1 || parsed.fileNames[0] !== root)
+  throw new Error('Temporary config root cannot be proven single-file');
+for (const key of Object.keys(converted.options))
+  if (JSON.stringify(converted.options[key]) !== JSON.stringify(parsed.options[key]))
+    throw new Error('Temporary config changed an original compiler option: ' + key);
+options = parsed.options;
+const program = ts.createProgram({ rootNames: parsed.fileNames, options, host });
+const files = program.getSourceFiles().map((file) => path.resolve(file.fileName));
+if (!files.includes(root) || blocked.length) throw new Error('Dependency audit is incomplete');
+const projectFiles = files.filter((p) => !p.includes('/node_modules/'));
+const evidence = {
+  purpose: 'Static import/type/lib closure only; no semantic lint/typecheck, emit, source execution or network',
+  typescriptVersion: ts.version,
+  rootFiles: program.getRootFileNames(),
+  originalCompilerOptions: config.compilerOptions,
+  protectedPathAccesses: blocked,
+  projectFiles: projectFiles.map((p) => path.relative(repo, p)),
+  sourceFiles: files.map((p) => path.relative(repo, p)),
+  readFiles: [...reads].sort(([a], [b]) => a.localeCompare(b)).map(([p, sha256]) => ({ path: path.relative(repo, p), sha256 })),
+};
+fs.writeFileSync(repo + '/docs/reviews/issue-41/20261029-nearest-static-closure.json', JSON.stringify(evidence, null, 2) + '\n');
+console.log(JSON.stringify({
+  rootFiles: evidence.rootFiles,
+  sources: files.length,
+  readFiles: reads.size,
+  protectedPathAccesses: blocked.length,
+  projectFiles: evidence.projectFiles,
+  originalCompilerOptionsUnchanged: true,
+  closureMatchesOriginalRootAudit: JSON.stringify([...files].sort()) === JSON.stringify(JSON.parse(fs.readFileSync(repo + '/docs/reviews/issue-41/20261029-static-closure.json', 'utf8')).sourceFiles.map(p => path.resolve(repo,p)).sort()),
+}, null, 2));

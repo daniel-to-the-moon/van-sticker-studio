@@ -1,0 +1,43 @@
+{
+  "recorded_date_timezone": "2026-10-30 Asia/Shanghai",
+  "tracking_issue": "https://github.com/shengjun89/van-sticker-studio/issues/56",
+  "source_main_sha": "c1666c2af070f36189f363c41b564074f5448c7b",
+  "release": "2026.1023.0",
+  "official_image_index_digest": "sha256:40f46940c4612ead131aebe6079cd4651f8cd1434af49f7c621887f4a452a62e",
+  "official_npm_integrity": "sha512-PA2gLYoJKcmen1YaNr7jtyyZK2xNyW92XEedgZ82S1MMeMEB2kdmk1okRMD4aFUV4OZPFBwk76pV0jCM2Fuy0g==",
+  "installed": false,
+  "service_started": false,
+  "public_endpoint": null,
+  "owner_claimed": false,
+  "external_agents_paired": false,
+  "dispatch_cutover": false,
+  "existing_hourly_automation_changed": false,
+  "cloudflare_configuration_changed": false,
+  "attempts": [
+    {
+      "action": "docker image pull",
+      "result": "download completed; VFS expansion exhausted root disk before service startup",
+      "cleanup": "removed only this unused downloaded image; zero containers and volumes existed; disk recovered"
+    },
+    {
+      "action": "isolated npm installation",
+      "result": "configuration rejected identical user/global /dev/null paths before download"
+    },
+    {
+      "action": "bounded npm correction 1",
+      "result": "EAI_AGAIN because the constructed install environment omitted platform proxy variables",
+      "note": "npm performed its default internal transport attempts; this was not a single HTTP request"
+    },
+    {
+      "action": "bounded npm correction 2",
+      "result": "FETCH_ERROR: negotiator-0.6.4.tgz network timeout; process exited 1",
+      "transport_retries": 0,
+      "status": "stopped; further limited continuation requested from user"
+    }
+  ],
+  "next_dependencies": [
+    "explicit response to the limited installation-continuation request",
+    "a verified durable host and authenticated HTTPS endpoint",
+    "owner setup, harmless event receipt and single-dispatcher acceptance"
+  ]
+}

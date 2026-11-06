@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { findFrontWrapTransitions } from './wrap-eligibility.ts';
+import { PALETTE_PARTITION, type VehiclePalette } from './vehicle-palettes.ts';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   circumference,
@@ -110,6 +111,16 @@ export class VehicleWrapEditor {
     this.takeCamera = options.takeCamera;
     this.placements = this.defaults();
     this.uniforms = {
+      uPaletteEnabled: { value: 0 },
+      uPaletteWhite: { value: new THREE.Color() },
+      uPaletteAccent: { value: new THREE.Color() },
+      uPaletteTrim: { value: new THREE.Color() },
+      uPaletteBand: {
+        value: new THREE.Vector2(
+          PALETTE_PARTITION.accentTop,
+          PALETTE_PARTITION.trimTop,
+        ),
+      },
       uDecalMap: { value: null },
       uHasDecal: { value: 0 },
       uDecalAspect: { value: 3 },
@@ -189,10 +200,19 @@ export class VehicleWrapEditor {
         shader.fragmentShader =
           `varying vec2 vWrapCoord; varying float vWrapEligible;
           uniform sampler2D uDecalMap; uniform float uHasDecal, uDecalAspect, uDecalPeriod, uDecalActive, uAntTime, uWrapReveal;
+          uniform float uPaletteEnabled;
+          uniform vec3 uPaletteWhite, uPaletteAccent, uPaletteTrim;
+          uniform vec2 uPaletteBand;
           uniform vec3 uDecalPlacements[2];\n` + shader.fragmentShader;
         shader.fragmentShader = shader.fragmentShader.replace(
           '#include <color_fragment>',
           `#include <color_fragment>
+          if(uPaletteEnabled > .5 && vWrapEligible > .5) {
+            float edge=max(fwidth(vWrapCoord.y),.0001);
+            vec3 paletteColor=mix(uPaletteAccent,uPaletteTrim,smoothstep(uPaletteBand.x-edge,uPaletteBand.x+edge,vWrapCoord.y));
+            paletteColor=mix(paletteColor,uPaletteWhite,smoothstep(uPaletteBand.y-edge,uPaletteBand.y+edge,vWrapCoord.y));
+            diffuseColor.rgb=paletteColor;
+          }
           if(uHasDecal > .5 && vWrapEligible > .5) {
             for(int i=0;i<2;i++) {
               vec3 p=uDecalPlacements[i];
@@ -218,7 +238,7 @@ export class VehicleWrapEditor {
         );
       };
       material.customProgramCacheKey = () =>
-        'mxgarage-continuous-wrap-editor-v2';
+        'mxgarage-continuous-wrap-editor-v3-palettes';
       material.needsUpdate = true;
     }
     this.sync();
@@ -246,6 +266,14 @@ export class VehicleWrapEditor {
         scale: 1,
       },
     ];
+  }
+  /** Only update palette uniforms; keep the user's texture, placements and lock. */
+  setPalette(palette: VehiclePalette | null) {
+    this.uniforms.uPaletteEnabled.value = palette ? 1 : 0;
+    if (!palette) return;
+    (this.uniforms.uPaletteWhite.value as THREE.Color).set(palette.white);
+    (this.uniforms.uPaletteAccent.value as THREE.Color).set(palette.accent);
+    (this.uniforms.uPaletteTrim.value as THREE.Color).set(palette.trim);
   }
   setImage(image: HTMLImageElement | null) {
     this.finish(false);

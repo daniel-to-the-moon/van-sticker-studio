@@ -1,0 +1,37 @@
+✔ the ten selectable palettes retain all approved colors and translated names (2.10959ms)
+✔ palette uniforms start disabled and compose before the existing eligible decal layer (5.06736ms)
+✔ all palette switches and restore preserve the actual decal, placements, lock, hook and excluded surfaces (3.960841ms)
+✖ the engine retains a pre-load choice, forwards it to the editor and keeps colors when clearing a sticker (2.095949ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 3
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 176.050782
+
+✖ failing tests:
+
+test at tests/vehicle-palettes.test.ts:150:6
+✖ the engine retains a pre-load choice, forwards it to the editor and keeps colors when clearing a sticker (2.095949ms)
+  AssertionError [ERR_ASSERTION]: the engine needs a palette setter
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at TestContext.<anonymous> (file:///workspace/van-sticker-studio/tests/vehicle-palettes.test.ts:169:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -1,0 +1,41 @@
+name: van-sticker-paperclip
+
+services:
+  control:
+    image: ghcr.io/paperclipai/paperclip@sha256:40f46940c4612ead131aebe6079cd4651f8cd1434af49f7c621887f4a452a62e
+    # Initial installation must fail visibly; do not loop failed startup.
+    restart: "no"
+    pids_limit: 2048
+    mem_limit: 4g
+    cpus: 2
+    stop_grace_period: 90s
+    ports:
+      - "127.0.0.1:${PAPERCLIP_PORT:-3100}:3100"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3100"
+      SERVE_UI: "true"
+      PAPERCLIP_HOME: /paperclip
+      PAPERCLIP_DEPLOYMENT_MODE: authenticated
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: private
+      PAPERCLIP_PUBLIC_URL: "http://localhost:${PAPERCLIP_PORT:-3100}"
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:?Create the new instance session secret locally}"
+      PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: "${PAPERCLIP_TOOL_ACTION_SIGNING_SECRET:?Create the new instance signing secret locally}"
+      PAPERCLIP_TELEMETRY_DISABLED: "1"
+      DO_NOT_TRACK: "1"
+    volumes:
+      - control-data:/paperclip
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
+    labels:
+      project.repository: shengjun89/van-sticker-studio
+      project.tracking: issue-56
+      project.purpose: coordination-only
+
+volumes:
+  control-data:
+    name: van-sticker-paperclip-data
