@@ -1,0 +1,346 @@
+{
+  "schema_version": 1,
+  "baseline_date": "2026-10-27",
+  "status": "requirements_not_implementation_acceptance",
+  "source": "本次产品访谈最后确认的决定；后续纠正优先于早期讨论",
+  "canonical_documents": [
+    "PRODUCT_SPEC.md",
+    "CANVAS_INTERACTIONS.md",
+    "ARCHITECTURE.md",
+    "DELIVERY_PLAN.md",
+    "EXISTING_IMPLEMENTATION.md",
+    "OPEN_QUESTIONS.md",
+    "references/CAPCUT_REVERSE_ENGINEERING.md"
+  ],
+  "rules": [
+    {
+      "id": "R01",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "初始化为底盘/车体/外壳，家具在布局阶段加入",
+      "acceptance": [
+        "V01",
+        "L02"
+      ]
+    },
+    {
+      "id": "R02",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "真实基线固定轴距轮位驾驶室，长短轴选择对应真实基线",
+      "acceptance": [
+        "V01"
+      ]
+    },
+    {
+      "id": "R03",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "圆润硬朗仅作用于许可的上装外壳，衍生不冒称公告",
+      "acceptance": [
+        "V02"
+      ]
+    },
+    {
+      "id": "R04",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "8套预枚举配色拉花即时显示，不触发AI与额度",
+      "acceptance": [
+        "V03"
+      ]
+    },
+    {
+      "id": "R05",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "有布局锁空间几何，纯配色仍可切换",
+      "acceptance": [
+        "V04"
+      ]
+    },
+    {
+      "id": "R06",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "清空二次确认与完整快照，同卡保留底盘配色图片，恢复车型和布局",
+      "acceptance": [
+        "V05"
+      ]
+    },
+    {
+      "id": "R07",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "可跳过最高身高人数场景；默认/推荐兼容车型模板",
+      "acceptance": [
+        "L01"
+      ]
+    },
+    {
+      "id": "R08",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "10类基础白模配件，成品固定尺寸，放不下提示不变形",
+      "acceptance": [
+        "L02",
+        "L03"
+      ]
+    },
+    {
+      "id": "R09",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "安装面高度朝向、ghost预览、合法吸附，释放才提交",
+      "acceptance": [
+        "L03"
+      ]
+    },
+    {
+      "id": "R10",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "区分柜内合法容纳与碰撞，设备独立选取替换并随父柜移动",
+      "acceptance": [
+        "L04"
+      ]
+    },
+    {
+      "id": "R11",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "空调按实际机型安装包络核验，不泛化吊柜安装",
+      "acceptance": [
+        "L05"
+      ]
+    },
+    {
+      "id": "R12",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "去顶俯视与透视切换，隐藏只影响显示不删结构",
+      "acceptance": [
+        "L06"
+      ]
+    },
+    {
+      "id": "R13",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "默认浏览画布，双击卡编辑，Esc/完成恢复原画布视口",
+      "acceptance": [
+        "C01",
+        "C02"
+      ]
+    },
+    {
+      "id": "R14",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "左窄栏和唯一展开面板，右AI对话保留",
+      "acceptance": [
+        "C01"
+      ]
+    },
+    {
+      "id": "R15",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "仅显式新建增加模型卡；复制或重新初始化，不扣AI额度",
+      "acceptance": [
+        "C03"
+      ]
+    },
+    {
+      "id": "R16",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "对话显示目标引用，无目标不修改或渲染",
+      "acceptance": [
+        "A01"
+      ]
+    },
+    {
+      "id": "R17",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "P0对话完善需求推荐解释；选预置风格不自动提交",
+      "acceptance": [
+        "A01",
+        "A02",
+        "A09"
+      ]
+    },
+    {
+      "id": "R18",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "主动真实AI生成固定1外观3内景；外观保持已选配色拉花",
+      "acceptance": [
+        "A03",
+        "A04"
+      ]
+    },
+    {
+      "id": "R19",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "AI只改视觉装修，不改门窗与家具几何；不合格不能当合格结果",
+      "acceptance": [
+        "A04"
+      ]
+    },
+    {
+      "id": "R20",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "按钮显示张数预计消耗剩余额度，缺额不降规格",
+      "acceptance": [
+        "A03",
+        "A05"
+      ]
+    },
+    {
+      "id": "R21",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "提交冻结版本，切卡和编辑不改变任务归属",
+      "acceptance": [
+        "A01",
+        "A06"
+      ]
+    },
+    {
+      "id": "R22",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "一次提交一张含4槽位的结果卡，逐图真实状态自动来源",
+      "acceptance": [
+        "A06"
+      ]
+    },
+    {
+      "id": "R23",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "后台不阻断画布，完成不抢焦点，主动查看才定位",
+      "acceptance": [
+        "A06"
+      ]
+    },
+    {
+      "id": "R24",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "部分成功保留成功项，失败项重试需确认新张数和消耗",
+      "acceptance": [
+        "A07"
+      ]
+    },
+    {
+      "id": "R25",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "模型变化后旧图待更新，不覆盖或自动重生成",
+      "acceptance": [
+        "A08"
+      ]
+    },
+    {
+      "id": "R26",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "撤销按编辑/浏览作用域分开，不回滚服务任务或伪造退款",
+      "acceptance": [
+        "C04"
+      ]
+    },
+    {
+      "id": "R27",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "游客真实本地自动保存，明确仅保存在本机",
+      "acceptance": [
+        "S01"
+      ]
+    },
+    {
+      "id": "R28",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "AI出图云存会员模型下载要求登录",
+      "acceptance": [
+        "S02"
+      ]
+    },
+    {
+      "id": "R29",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "模型导出高级配件图片权益AI额度独立控制；不接真实支付",
+      "acceptance": [
+        "S03"
+      ]
+    },
+    {
+      "id": "R30",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "低模导出独立底盘外壳配件与层级，Blender/FreeCAD实际回读",
+      "acceptance": [
+        "E01",
+        "E02"
+      ]
+    },
+    {
+      "id": "R31",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "基础分享图下载与高清无水印权限分开，产物关联来源",
+      "acceptance": [
+        "E03"
+      ]
+    },
+    {
+      "id": "R32",
+      "priority": "P0",
+      "decision_status": "confirmed",
+      "summary": "真实AI为正式验收条件，Mock只开发测试且标记",
+      "acceptance": [
+        "A03",
+        "A05"
+      ]
+    },
+    {
+      "id": "R33",
+      "priority": "P1",
+      "decision_status": "confirmed",
+      "summary": "自然语言追加风格描述后续扩展",
+      "acceptance": []
+    }
+  ],
+  "deferred": [
+    "自然语言自动增删移动配件",
+    "专业视频编辑器",
+    "施工图及制造批准",
+    "AI静态图反建精装三维",
+    "真实支付"
+  ],
+  "unresolved": [
+    "Q01",
+    "Q02",
+    "Q03",
+    "Q04",
+    "Q05",
+    "Q06",
+    "Q07",
+    "Q08",
+    "Q09",
+    "Q10",
+    "Q11",
+    "Q12",
+    "Q13",
+    "Q14",
+    "Q15"
+  ]
+}

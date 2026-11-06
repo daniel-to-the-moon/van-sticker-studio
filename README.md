@@ -1,5 +1,9 @@
 # MXGARAGE Wrap Studio
 
+## 房车工作流开发文档（待评审扩展规格）
+
+[项目开发入口](docs/development/README.md) 汇总无限画布、实时外观、空间布局、真实 AI 四图、版本 / 保存 / 导出与验收计划；[未决问题](docs/development/OPEN_QUESTIONS.md) 可按编号留言。该提案不改变现行治理规则或既有冻结验收，功能现状与目标已分开记录。
+
 A private, interactive decal studio for a campervan 3D model.
 
 ## Use
