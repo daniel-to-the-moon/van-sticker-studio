@@ -38,7 +38,7 @@
 
 - `adaptPoint(profile, mesh, world)` → 规范坐标、图坐标、着色器坐标、是否可贴、反馈。
 - `adaptTriangle(...)` → 跨空隙、跨开口、内表面、退化面或拉伸超限时不可贴，并给出原因。
-- `bakeWrapAttributes(mesh, profile)` → 写入 `aWrapCoord` / `aWrapEligible`。只有跨越周长接缝的三角形才会复制成非索引几何。
+- `bakeWrapAttributes(mesh, profile)` → 写入 `aWrapCoord` / `aWrapEligible`。每个三角形都走 `adaptTriangle` 的拒绝规则（空隙、跨开口、内表面、拉伸）。开口内部不贴，但开口边界上的墙面顶点保留真实周长坐标，不写成 (0,0)。局部入户/驾驶面按同一车长位置取侧围坐标，不把整侧设计压进面板宽度。只有接缝或「拒绝三角形与合格三角形共用顶点」时才复制几何。
 - `meshStats(root)` → 三角面数、绘制调用、退化面数。
 
 `VehicleWrapEditor` 构造参数增加可选 `profile?: VehicleModelProfile`。

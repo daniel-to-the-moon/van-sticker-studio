@@ -245,19 +245,30 @@ function projectPoint(
         reason: '局部面不套用左右侧围设计',
       },
     };
-  const fraction = projection.width > 1e-6 ? s / projection.width : 0;
-  const { length, width } = profile.envelope;
-  const shaderS =
-    projection.face === 'entry'
-      ? length * (1 - fraction)
-      : length + width + fraction * length;
+  const shaded = sideShader(profile, projection.face, point);
   return {
     s,
     h,
-    shaderS,
-    shaderH: point[1],
+    shaderS: shaded.shaderS,
+    shaderH: shaded.shaderH,
     eligible: true,
     feedback: { mesh, panelId: panel.id, status: 'applied', reason: '局部侧围坐标' },
+  };
+}
+
+/** Same longitudinal chart as the main side, so a slide is not a squashed copy. */
+function sideShader(
+  profile: VehicleModelProfile,
+  face: 'entry' | 'driver',
+  point: Vec3,
+) {
+  const zHull =
+    face === 'entry'
+      ? profile.envelope.centerZ - profile.envelope.width / 2
+      : profile.envelope.centerZ + profile.envelope.width / 2;
+  return {
+    shaderS: perimeterCoordinate(point[0], zHull, envelopeBody(profile)),
+    shaderH: point[1],
   };
 }
 
@@ -266,12 +277,13 @@ function insideOpening(
   s: number,
   h: number,
 ): boolean {
+  const margin = 1e-4;
   return (panel.openings ?? []).some(
     (opening) =>
-      s >= opening.s0 - 1e-6 &&
-      s <= opening.s1 + 1e-6 &&
-      h >= opening.h0 - 1e-6 &&
-      h <= opening.h1 + 1e-6,
+      s > opening.s0 + margin &&
+      s < opening.s1 - margin &&
+      h > opening.h0 + margin &&
+      h < opening.h1 - margin,
   );
 }
 
@@ -303,8 +315,8 @@ export function adaptPoint(
       canonical,
       chartS: chart.s,
       chartH: chart.h,
-      shaderS: null,
-      shaderH: null,
+      shaderS: chart.shaderS,
+      shaderH: chart.shaderH,
       eligible: false,
       mirrorGlyphs: false,
       feedback: {
@@ -362,14 +374,26 @@ function hitsOpening(
   panel: VehiclePanel,
   points: { s: number; h: number }[],
 ): boolean {
+  const margin = 1e-4;
   return (panel.openings ?? []).some((opening) => {
+    const s0 = opening.s0 + margin;
+    const s1 = opening.s1 - margin;
+    const h0 = opening.h0 + margin;
+    const h1 = opening.h1 - margin;
+    if (!(s0 < s1 && h0 < h1))
+      return points.some((point) => insideOpening(panel, point.s, point.h));
+    if (
+      points.some(
+        (point) => point.s > s0 && point.s < s1 && point.h > h0 && point.h < h1,
+      )
+    )
+      return true;
     const rect = [
-      { s: opening.s0, h: opening.h0 },
-      { s: opening.s1, h: opening.h0 },
-      { s: opening.s1, h: opening.h1 },
-      { s: opening.s0, h: opening.h1 },
+      { s: s0, h: h0 },
+      { s: s1, h: h0 },
+      { s: s1, h: h1 },
+      { s: s0, h: h1 },
     ];
-    if (points.some((point) => insideOpening(panel, point.s, point.h))) return true;
     for (let index = 0; index < points.length; index += 1) {
       const start = points[index];
       const end = points[(index + 1) % points.length];
@@ -458,6 +482,19 @@ export function adaptTriangle(
     );
     stretch = Math.max(stretch, world < 1e-8 ? 0 : Math.abs(chartDistance / world - 1));
   }
+  if (projected.every((point) => point.shaderS != null && point.shaderH != null)) {
+    for (let index = 0; index < 3; index += 1) {
+      const world = lengthOf(sub(closed[(index + 1) % 3], closed[index]));
+      const shaderDistance = Math.hypot(
+        (projected[(index + 1) % 3].shaderS ?? 0) - (projected[index].shaderS ?? 0),
+        (projected[(index + 1) % 3].shaderH ?? 0) - (projected[index].shaderH ?? 0),
+      );
+      stretch = Math.max(
+        stretch,
+        world < 1e-8 ? 0 : Math.abs(shaderDistance / world - 1),
+      );
+    }
+  }
   const limit = panel.maxStretch ?? DEFAULT_STRETCH;
   if (!shell && stretch > limit)
     return empty(
@@ -501,54 +538,104 @@ function liftSeam(coords: Float32Array, count: number, period: number) {
   }
 }
 
-/** Write the chart the existing wrap shader already samples. Copy only seam triangles. */
+/** Write the chart the existing wrap shader already samples. */
 export function bakeWrapAttributes(
   mesh: THREE.Mesh,
   profile: VehicleModelProfile,
 ): BakeResult {
   const feedback = classifyMesh(profile, mesh.name);
-  if (feedback.status !== 'applied' || !mesh.geometry.getAttribute('position'))
+  const sourcePosition = mesh.geometry.getAttribute('position');
+  if (feedback.status !== 'applied' || !sourcePosition)
     return { eligible: false, copied: false, replaced: null, feedback };
   mesh.updateWorldMatrix(true, false);
   const source = mesh.geometry;
-  const sample = (geometry: THREE.BufferGeometry) => {
-    const position = geometry.getAttribute('position');
-    const coords = new Float32Array(position.count * 2);
-    const eligible = new Float32Array(position.count);
-    const world = new THREE.Vector3();
-    let any = false;
-    for (let index = 0; index < position.count; index += 1) {
-      world.fromBufferAttribute(position, index).applyMatrix4(mesh.matrixWorld);
-      const adapted = adaptPoint(profile, mesh.name, [world.x, world.y, world.z]);
-      if (adapted.eligible && adapted.shaderS != null && adapted.shaderH != null) {
-        coords[index * 2] = adapted.shaderS;
-        coords[index * 2 + 1] = adapted.shaderH;
-        eligible[index] = 1;
-        any = true;
-      }
-    }
-    return { coords, eligible, any };
+  const sourceIndex = source.index;
+  const world = new THREE.Vector3();
+  const worldOf = (vertex: number): [number, number, number] => {
+    world.fromBufferAttribute(sourcePosition, vertex).applyMatrix4(mesh.matrixWorld);
+    return [world.x, world.y, world.z];
   };
+  const adapted = Array.from({ length: sourcePosition.count }, (_, vertex) =>
+    adaptPoint(profile, mesh.name, worldOf(vertex)),
+  );
+  const cornerOf = (corner: number) =>
+    sourceIndex ? sourceIndex.getX(corner) : corner;
+  const cornerCount = sourceIndex ? sourceIndex.count : sourcePosition.count;
+  const triangleCount = Math.floor(cornerCount / 3);
+  const decisions = Array.from({ length: triangleCount }, (_, triangle) =>
+    adaptTriangle(
+      profile,
+      mesh.name,
+      worldOf(cornerOf(triangle * 3)),
+      worldOf(cornerOf(triangle * 3 + 1)),
+      worldOf(cornerOf(triangle * 3 + 2)),
+    ),
+  );
+  const accepted = new Uint8Array(sourcePosition.count);
+  for (let triangle = 0; triangle < triangleCount; triangle += 1) {
+    if (!decisions[triangle].eligible) continue;
+    for (let corner = 0; corner < 3; corner += 1)
+      accepted[cornerOf(triangle * 3 + corner)] = 1;
+  }
+  let sharesRejectedCorner = false;
+  if (sourceIndex) {
+    for (let triangle = 0; triangle < triangleCount && !sharesRejectedCorner; triangle += 1) {
+      if (decisions[triangle].eligible) continue;
+      for (let corner = 0; corner < 3; corner += 1)
+        if (accepted[cornerOf(triangle * 3 + corner)]) sharesRejectedCorner = true;
+    }
+  }
+  const period = circumference(envelopeBody(profile));
+  const preliminary = new Float32Array(sourcePosition.count * 2);
+  for (let vertex = 0; vertex < sourcePosition.count; vertex += 1) {
+    const point = adapted[vertex];
+    if (point.shaderS == null || point.shaderH == null) continue;
+    preliminary[vertex * 2] = point.shaderS;
+    preliminary[vertex * 2 + 1] = point.shaderH;
+  }
+  const seam = sourceIndex != null && seamCrosses(source, preliminary, period);
   let geometry = source;
   let replaced: THREE.BufferGeometry | null = null;
-  let baked = sample(geometry);
-  const period = circumference(envelopeBody(profile));
-  if (geometry.index && seamCrosses(geometry, baked.coords, period)) {
-    replaced = geometry;
-    geometry = geometry.toNonIndexed();
+  if (sourceIndex && (sharesRejectedCorner || seam)) {
+    replaced = source;
+    geometry = source.toNonIndexed();
     mesh.geometry = geometry;
-    baked = sample(geometry);
-    liftSeam(baked.coords, geometry.getAttribute('position').count, period);
   }
-  if (!baked.any) {
+  const expanded = geometry !== source;
+  const count = geometry.getAttribute('position').count;
+  const coords = new Float32Array(count * 2);
+  const eligible = new Float32Array(count);
+  let any = false;
+  const write = (slot: number, vertex: number, triangleEligible: boolean) => {
+    const point = adapted[vertex];
+    if (point.shaderS != null && point.shaderH != null) {
+      coords[slot * 2] = point.shaderS;
+      coords[slot * 2 + 1] = point.shaderH;
+    }
+    if (triangleEligible && point.eligible) {
+      eligible[slot] = 1;
+      any = true;
+    }
+  };
+  if (!expanded) {
+    for (let vertex = 0; vertex < count; vertex += 1)
+      write(vertex, vertex, accepted[vertex] === 1);
+  } else {
+    for (let corner = 0; corner < count; corner += 1) {
+      const triangle = Math.floor(corner / 3);
+      write(corner, cornerOf(corner), decisions[triangle]?.eligible === true);
+    }
+  }
+  if (expanded || !sourceIndex) liftSeam(coords, count, period);
+  if (!any) {
     if (replaced) {
       mesh.geometry = replaced;
       geometry.dispose();
     }
     return { eligible: false, copied: false, replaced: null, feedback };
   }
-  geometry.setAttribute('aWrapCoord', new THREE.BufferAttribute(baked.coords, 2));
-  geometry.setAttribute('aWrapEligible', new THREE.BufferAttribute(baked.eligible, 1));
+  geometry.setAttribute('aWrapCoord', new THREE.BufferAttribute(coords, 2));
+  geometry.setAttribute('aWrapEligible', new THREE.BufferAttribute(eligible, 1));
   return { eligible: true, copied: replaced != null, replaced, feedback };
 }
 
