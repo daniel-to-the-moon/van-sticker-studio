@@ -2476,3 +2476,5 @@ a {
   cursor: default;
   opacity: 0.45;
 }
+/* #53 / #73: quiet Nexusbot/Axon-inspired editor chrome. */
+.studio-shell{background:#f5f6f7;color:#1f2329}.topbar{background:#f5f6f7;border-bottom-color:#e8e8e8}.free-design-entry{display:inline-flex;align-items:center;padding:8px 16px;background:#1f2329;color:white;border-radius:100px;text-decoration:none;font-size:13px;white-space:nowrap}.free-design-entry:hover{background:#343940}.scene-panel{border-radius:12px}.eyebrow{letter-spacing:0}.studio-name .beta{display:none}@media(max-width:600px){.free-design-entry{padding:8px 11px;font-size:12px}}

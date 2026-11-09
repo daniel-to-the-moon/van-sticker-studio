@@ -64,13 +64,13 @@ void test('rear three-quarter is the front three-quarter mirrored front to back 
   assert.ok(rear[0] > 0);
 });
 
-void test('existing studio view directions stay on their current vectors', () => {
+void test('studio views use level elevations after the approved side-view correction', () => {
   assert.deepEqual(STUDIO_VIEW_DIRECTIONS, {
     hero: [-0.83, 0.48, -1],
-    entry: [0, 0.22, -1],
-    driver: [0, 0.22, 1],
-    front: [-1, 0.18, 0],
-    rear: [1, 0.22, 0],
+    entry: [0, 0, -1],
+    driver: [0, 0, 1],
+    front: [-1, 0, 0],
+    rear: [1, 0, 0],
   });
 });
 
@@ -82,6 +82,7 @@ void test('setView still aims the camera along those studio directions', () => {
     update() {},
   };
   const engine = Object.assign(Object.create(SceneEngine.prototype), {
+    root: new THREE.Group().add(new THREE.Mesh(new THREE.BoxGeometry(6, 3, 2))),
     camera,
     controls,
     host: { clientWidth: 1200, clientHeight: 800 },
@@ -302,7 +303,8 @@ function boxFits(camera: THREE.PerspectiveCamera, root: THREE.Object3D) {
       for (const z of [box.min.z, box.max.z]) {
         const projected = new THREE.Vector3(x, y, z).project(camera);
         if (!(projected.z > -1 && projected.z < 1)) return false;
-        if (Math.abs(projected.x) > 1 || Math.abs(projected.y) > 1) return false;
+        if (Math.abs(projected.x) > 1 || Math.abs(projected.y) > 1)
+          return false;
         maxAbs = Math.max(maxAbs, Math.abs(projected.x), Math.abs(projected.y));
       }
     }
@@ -326,7 +328,10 @@ void test('a successful export forces a clean drawing and then restores the stud
   assert.equal(during.fog, null);
   assert.equal(during.background, 'f1eee4');
   assert.equal(during.pixelRatio, 1);
-  assert.deepEqual(during.size, [DRAWING_EXPORT_PX.width, DRAWING_EXPORT_PX.height]);
+  assert.deepEqual(during.size, [
+    DRAWING_EXPORT_PX.width,
+    DRAWING_EXPORT_PX.height,
+  ]);
   assert.equal(
     during.aspect,
     DRAWING_EXPORT_PX.width / DRAWING_EXPORT_PX.height,
@@ -334,7 +339,9 @@ void test('a successful export forces a clean drawing and then restores the stud
   const aim = new THREE.Vector3(...during.camera)
     .sub(new THREE.Vector3(...during.target))
     .normalize();
-  const expected = new THREE.Vector3(...viewById('entry').direction).normalize();
+  const expected = new THREE.Vector3(
+    ...viewById('entry').direction,
+  ).normalize();
   assert.ok(aim.dot(expected) > 0.999);
   assert.equal(during.framed, true);
   assert.deepEqual(harness.order, [
@@ -343,10 +350,7 @@ void test('a successful export forces a clean drawing and then restores the stud
     'scene',
     'silhouette',
   ]);
-  assert.equal(
-    file.filename,
-    `drawing-entry-${VEHICLE_ASSET_REVISION}.png`,
-  );
+  assert.equal(file.filename, `drawing-entry-${VEHICLE_ASSET_REVISION}.png`);
   assert.match(file.dataUrl, /^data:image\/png/);
   assert.deepEqual(harness.snapshot(), before);
   assert.equal(harness.body.material, harness.original);
@@ -388,10 +392,7 @@ void test('a capture failure restores the camera, size, pixel ratio, mode and vi
 void test('the model must be loaded before an export mutates the studio', () => {
   const harness = exportHarness({ root: null });
   const before = harness.snapshot();
-  assert.throws(
-    () => harness.engine.exportDrawing('entry'),
-    /model-not-ready/,
-  );
+  assert.throws(() => harness.engine.exportDrawing('entry'), /model-not-ready/);
   assert.deepEqual(harness.snapshot(), before);
 });
 

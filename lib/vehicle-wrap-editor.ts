@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { svgDocument, type Project } from './free-wrap.ts';
 import { findFrontWrapTransitions } from './wrap-eligibility.ts';
 import { PALETTE_PARTITION, type VehiclePalette } from './vehicle-palettes.ts';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -59,6 +60,8 @@ const DECAL_BASE_WIDTH_M = 3.5;
 
 /** Direct editing uses the same closed-pose surface chart as the rendered ink. */
 export class VehicleWrapEditor {
+  private designEpoch = 0;
+  private designTextures: THREE.Texture[] = [];
   placements: DecalPlacement[];
   private body: WrapBody;
   private host: HTMLElement;
@@ -130,6 +133,16 @@ export class VehicleWrapEditor {
         value: new THREE.Vector2(
           PALETTE_PARTITION.accentTop,
           PALETTE_PARTITION.trimTop,
+        ),
+      },
+      uDesignEntry: { value: null },
+      uDesignDriver: { value: null },
+      uHasDesign: { value: 0 },
+      uDesignSize: {
+        value: new THREE.Vector3(
+          this.body.length,
+          this.body.width,
+          this.body.height,
         ),
       },
       uDecalMap: { value: null },
@@ -213,6 +226,8 @@ export class VehicleWrapEditor {
           `varying vec2 vWrapCoord; varying float vWrapEligible;
           uniform sampler2D uDecalMap; uniform float uHasDecal, uDecalAspect, uDecalPeriod, uDecalActive, uAntTime, uWrapReveal;
           uniform float uPaletteEnabled;
+          uniform sampler2D uDesignEntry, uDesignDriver;
+          uniform float uHasDesign; uniform vec3 uDesignSize;
           uniform vec3 uPaletteWhite, uPaletteAccent, uPaletteTrim;
           uniform vec2 uPaletteBand;
           uniform vec3 uDecalPlacements[2];\n` + shader.fragmentShader;
@@ -224,6 +239,19 @@ export class VehicleWrapEditor {
             vec3 paletteColor=mix(uPaletteAccent,uPaletteTrim,smoothstep(uPaletteBand.x-edge,uPaletteBand.x+edge,vWrapCoord.y));
             paletteColor=mix(paletteColor,uPaletteWhite,smoothstep(uPaletteBand.y-edge,uPaletteBand.y+edge,vWrapCoord.y));
             diffuseColor.rgb=paletteColor;
+          }
+          if(uHasDesign > .5 && vWrapEligible > .5) {
+            float s=mod(vWrapCoord.x,uDecalPeriod);
+            float y=1.-vWrapCoord.y/uDesignSize.z;
+            if(y>=0. && y<=1.) {
+              if(s<=uDesignSize.x) {
+                vec4 ink=texture2D(uDesignEntry,vec2(s/uDesignSize.x,y));
+                diffuseColor.rgb=mix(diffuseColor.rgb,ink.rgb,ink.a);
+              } else if(s>=uDesignSize.x+uDesignSize.y && s<=2.*uDesignSize.x+uDesignSize.y) {
+                vec4 ink=texture2D(uDesignDriver,vec2((s-uDesignSize.x-uDesignSize.y)/uDesignSize.x,y));
+                diffuseColor.rgb=mix(diffuseColor.rgb,ink.rgb,ink.a);
+              }
+            }
           }
           if(uHasDecal > .5 && vWrapEligible > .5) {
             for(int i=0;i<2;i++) {
@@ -250,7 +278,7 @@ export class VehicleWrapEditor {
         );
       };
       material.customProgramCacheKey = () =>
-        'mxgarage-continuous-wrap-editor-v3-palettes';
+        'mxgarage-continuous-wrap-editor-v4-design';
       material.needsUpdate = true;
     }
     this.sync();
@@ -280,6 +308,43 @@ export class VehicleWrapEditor {
     ];
   }
   /** Only update palette uniforms; keep the user's texture, placements and lock. */
+  async setDesign(project: Project | null) {
+    const epoch = ++this.designEpoch;
+    if (!project) {
+      this.uniforms.uHasDesign.value = 0;
+      this.designTextures.forEach((t) => t.dispose());
+      this.designTextures = [];
+      return;
+    }
+    const textures = await Promise.all(
+      (['entry', 'driver'] as const).map(
+        (side) =>
+          new Promise<THREE.Texture>((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => {
+              const texture = new THREE.Texture(image);
+              texture.flipY = false;
+              texture.colorSpace = THREE.SRGBColorSpace;
+              texture.needsUpdate = true;
+              resolve(texture);
+            };
+            image.onerror = () => reject(new Error('无法生成贴画预览'));
+            image.src =
+              'data:image/svg+xml;charset=utf-8,' +
+              encodeURIComponent(svgDocument(project, side, true));
+          }),
+      ),
+    );
+    if (epoch !== this.designEpoch) {
+      textures.forEach((t) => t.dispose());
+      return;
+    }
+    this.designTextures.forEach((t) => t.dispose());
+    this.designTextures = textures;
+    this.uniforms.uDesignEntry.value = textures[0];
+    this.uniforms.uDesignDriver.value = textures[1];
+    this.uniforms.uHasDesign.value = 1;
+  }
   setPalette(palette: VehiclePalette | null) {
     this.uniforms.uPaletteEnabled.value = palette ? 1 : 0;
     if (!palette) return;
@@ -634,7 +699,9 @@ export class VehicleWrapEditor {
     this.refreshBoundary();
   }
   private sameDecal(a: DecalPlacement, b: DecalPlacement) {
-    return a.center === b.center && a.height === b.height && a.scale === b.scale;
+    return (
+      a.center === b.center && a.height === b.height && a.scale === b.scale
+    );
   }
   private noteEntryEdit(active: number, before: DecalPlacement) {
     if (active === 0 && !this.sameDecal(this.placements[0], before))
@@ -678,7 +745,7 @@ export class VehicleWrapEditor {
     const onSide = Math.abs(pz / w) >= Math.abs(px / half) - 1e-8;
     const s = perimeterCoordinate(x, z, b);
     const period = circumference(b);
-    const sideS = ((half - px) % period + period) % period;
+    const sideS = (((half - px) % period) + period) % period;
     return {
       s,
       entry:
@@ -916,6 +983,8 @@ export class VehicleWrapEditor {
     });
   }
   dispose() {
+    this.designEpoch++;
+    this.designTextures.forEach((t) => t.dispose());
     this.finish(false);
     this.texture?.dispose();
     this.replaced.forEach((g) => g.dispose());

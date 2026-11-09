@@ -1,0 +1,642 @@
+{
+  "version": 1,
+  "background": "#f3eedf",
+  "layers": [
+    {
+      "id": "coffee-study-1",
+      "name": "色块",
+      "linked": true,
+      "entry": {
+        "kind": "region",
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1,
+        "rotation": 0,
+        "color": "#95b8aa",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [
+          {
+            "x": 0,
+            "y": 0.18
+          },
+          {
+            "x": 1,
+            "y": 0.18
+          },
+          {
+            "x": 1,
+            "y": 0.82
+          },
+          {
+            "x": 0,
+            "y": 0.82
+          }
+        ],
+        "thickness": 0.006,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      },
+      "driver": {
+        "kind": "region",
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1,
+        "rotation": 0,
+        "color": "#95b8aa",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [
+          {
+            "x": 0,
+            "y": 0.18
+          },
+          {
+            "x": 1,
+            "y": 0.18
+          },
+          {
+            "x": 1,
+            "y": 0.82
+          },
+          {
+            "x": 0,
+            "y": 0.82
+          }
+        ],
+        "thickness": 0.006,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      }
+    },
+    {
+      "id": "coffee-study-2",
+      "name": "色块",
+      "linked": true,
+      "entry": {
+        "kind": "region",
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [
+          {
+            "x": 0.32,
+            "y": 0.46
+          },
+          {
+            "x": 0.8,
+            "y": 0.46
+          },
+          {
+            "x": 0.8,
+            "y": 0.66
+          },
+          {
+            "x": 0.32,
+            "y": 0.66
+          }
+        ],
+        "thickness": 0.006,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      },
+      "driver": {
+        "kind": "region",
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [
+          {
+            "x": 0.32,
+            "y": 0.46
+          },
+          {
+            "x": 0.8,
+            "y": 0.46
+          },
+          {
+            "x": 0.8,
+            "y": 0.66
+          },
+          {
+            "x": 0.32,
+            "y": 0.66
+          }
+        ],
+        "thickness": 0.006,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      }
+    },
+    {
+      "id": "coffee-study-3",
+      "name": "文字",
+      "linked": true,
+      "entry": {
+        "kind": "text",
+        "x": 0.34,
+        "y": 0.54,
+        "w": 0.44,
+        "h": 0.105,
+        "rotation": 0,
+        "color": "#faf9f4",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [],
+        "thickness": 0.006,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      },
+      "driver": {
+        "kind": "text",
+        "x": 0.34,
+        "y": 0.54,
+        "w": 0.44,
+        "h": 0.105,
+        "rotation": 0,
+        "color": "#faf9f4",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [],
+        "thickness": 0.006,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      }
+    },
+    {
+      "id": "coffee-study-4",
+      "name": "图标",
+      "linked": true,
+      "entry": {
+        "kind": "icon",
+        "x": 0.78,
+        "y": 0.7,
+        "w": 0.065,
+        "h": 0.15,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [],
+        "thickness": 0.006,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      },
+      "driver": {
+        "kind": "icon",
+        "x": 0.78,
+        "y": 0.7,
+        "w": 0.065,
+        "h": 0.15,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [],
+        "thickness": 0.006,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      }
+    },
+    {
+      "id": "coffee-study-5",
+      "name": "图标",
+      "linked": true,
+      "entry": {
+        "kind": "icon",
+        "x": 0.49,
+        "y": 0.7,
+        "w": 0.08,
+        "h": 0.16,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "runner",
+        "src": "",
+        "points": [],
+        "thickness": 0.006,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      },
+      "driver": {
+        "kind": "icon",
+        "x": 0.49,
+        "y": 0.7,
+        "w": 0.08,
+        "h": 0.16,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "runner",
+        "src": "",
+        "points": [],
+        "thickness": 0.006,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      }
+    },
+    {
+      "id": "coffee-study-6",
+      "name": "图标",
+      "linked": true,
+      "entry": {
+        "kind": "icon",
+        "x": 0.12,
+        "y": 0.63,
+        "w": 0.09,
+        "h": 0.15,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "badge",
+        "src": "",
+        "points": [],
+        "thickness": 0.006,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      },
+      "driver": {
+        "kind": "icon",
+        "x": 0.12,
+        "y": 0.63,
+        "w": 0.09,
+        "h": 0.15,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "badge",
+        "src": "",
+        "points": [],
+        "thickness": 0.006,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      }
+    },
+    {
+      "id": "coffee-study-7",
+      "name": "文字",
+      "linked": true,
+      "entry": {
+        "kind": "text",
+        "x": 0.59,
+        "y": 0.73,
+        "w": 0.11,
+        "h": 0.055,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "Coffee Time",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [],
+        "thickness": 0.006,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      },
+      "driver": {
+        "kind": "text",
+        "x": 0.59,
+        "y": 0.73,
+        "w": 0.11,
+        "h": 0.055,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "Coffee Time",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [],
+        "thickness": 0.006,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      }
+    },
+    {
+      "id": "coffee-study-8",
+      "name": "涂鸦",
+      "linked": true,
+      "entry": {
+        "kind": "stroke",
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [
+          {
+            "x": 0.31,
+            "y": 0.865
+          },
+          {
+            "x": 0.73,
+            "y": 0.865
+          }
+        ],
+        "thickness": 0.008,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      },
+      "driver": {
+        "kind": "stroke",
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [
+          {
+            "x": 0.31,
+            "y": 0.865
+          },
+          {
+            "x": 0.73,
+            "y": 0.865
+          }
+        ],
+        "thickness": 0.008,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      }
+    },
+    {
+      "id": "coffee-study-9",
+      "name": "涂鸦",
+      "linked": true,
+      "entry": {
+        "kind": "stroke",
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [
+          {
+            "x": 0.31,
+            "y": 0.9
+          },
+          {
+            "x": 0.73,
+            "y": 0.9
+          }
+        ],
+        "thickness": 0.008,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      },
+      "driver": {
+        "kind": "stroke",
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [
+          {
+            "x": 0.31,
+            "y": 0.9
+          },
+          {
+            "x": 0.73,
+            "y": 0.9
+          }
+        ],
+        "thickness": 0.008,
+        "dashed": false,
+        "visible": true,
+        "locked": false
+      }
+    },
+    {
+      "id": "coffee-study-10",
+      "name": "涂鸦",
+      "linked": true,
+      "entry": {
+        "kind": "stroke",
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [
+          {
+            "x": 0.02,
+            "y": 0.76
+          },
+          {
+            "x": 0.08,
+            "y": 0.73
+          },
+          {
+            "x": 0.13,
+            "y": 0.67
+          },
+          {
+            "x": 0.18,
+            "y": 0.64
+          },
+          {
+            "x": 0.23,
+            "y": 0.67
+          },
+          {
+            "x": 0.3,
+            "y": 0.76
+          },
+          {
+            "x": 0.37,
+            "y": 0.78
+          },
+          {
+            "x": 0.45,
+            "y": 0.77
+          },
+          {
+            "x": 0.54,
+            "y": 0.8
+          },
+          {
+            "x": 0.64,
+            "y": 0.79
+          },
+          {
+            "x": 0.71,
+            "y": 0.76
+          },
+          {
+            "x": 0.77,
+            "y": 0.69
+          },
+          {
+            "x": 0.83,
+            "y": 0.66
+          },
+          {
+            "x": 0.88,
+            "y": 0.65
+          },
+          {
+            "x": 0.95,
+            "y": 0.54
+          }
+        ],
+        "thickness": 0.004,
+        "dashed": true,
+        "visible": true,
+        "locked": false
+      },
+      "driver": {
+        "kind": "stroke",
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1,
+        "rotation": 0,
+        "color": "#17201c",
+        "text": "YunQi Coffee",
+        "font": "hand",
+        "icon": "cup",
+        "src": "",
+        "points": [
+          {
+            "x": 0.02,
+            "y": 0.76
+          },
+          {
+            "x": 0.08,
+            "y": 0.73
+          },
+          {
+            "x": 0.13,
+            "y": 0.67
+          },
+          {
+            "x": 0.18,
+            "y": 0.64
+          },
+          {
+            "x": 0.23,
+            "y": 0.67
+          },
+          {
+            "x": 0.3,
+            "y": 0.76
+          },
+          {
+            "x": 0.37,
+            "y": 0.78
+          },
+          {
+            "x": 0.45,
+            "y": 0.77
+          },
+          {
+            "x": 0.54,
+            "y": 0.8
+          },
+          {
+            "x": 0.64,
+            "y": 0.79
+          },
+          {
+            "x": 0.71,
+            "y": 0.76
+          },
+          {
+            "x": 0.77,
+            "y": 0.69
+          },
+          {
+            "x": 0.83,
+            "y": 0.66
+          },
+          {
+            "x": 0.88,
+            "y": 0.65
+          },
+          {
+            "x": 0.95,
+            "y": 0.54
+          }
+        ],
+        "thickness": 0.004,
+        "dashed": true,
+        "visible": true,
+        "locked": false
+      }
+    }
+  ]
+}
