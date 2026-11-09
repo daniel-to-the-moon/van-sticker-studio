@@ -18,24 +18,24 @@ const VENDOR_HOST = 'api.' + 'openai.com';
 const KEY_NAME = 'OPENAI_' + 'API_KEY';
 const SK_PATTERN = /sk-[A-Za-z0-9_-]{20,}/;
 
-const README_LINE_23 =
+const README_LINE_27 =
   'Configure `' +
   KEY_NAME +
   '` as a Sites server secret. Never use a `' +
   BROWSER_PREFIX +
   '` variable for the key. `OPENAI_IMAGE_MODEL` is optional and defaults to `gpt-image-2`. The browser never receives the key. For local development, copy `.dev.vars.example` to the ignored `.dev.vars` and set values there.';
 
-const DEPLOY_LINE_136 =
+const DEPLOY_LINE_129 =
   '- **严禁**使用 `' +
   BROWSER_PREFIX +
   '` 前缀变量：带该前缀的变量会被打进前端 bundle，等于公开密钥。';
 
-const DEPLOY_LINE_259 =
+const DEPLOY_LINE_260 =
   '- [ ] 生产 secret 只存在于服务端（`wrangler secret list` 只见变量名），前端环境变量中无 `' +
   BROWSER_PREFIX +
   '` 形式的 key';
 
-const DEPLOY_LINE_285 =
+const DEPLOY_LINE_287 =
   '2. **再查 secret 是否存在于正确环境**：确认本地查的是 `.dev.vars`、线上查的是目标 Worker 的 secret（`wrangler secret list` 或控制台），两者互不相通是最常见误配；同时确认变量名拼写为 `' +
   KEY_NAME +
   '`（及可选的 `OPENAI_IMAGE_MODEL`），没有误用 `' +
@@ -50,29 +50,29 @@ export const DOC_SAFETY_ALLOWLIST: readonly {
 }[] = [
   {
     path: 'README.md',
-    lineNumber: 23,
-    line: README_LINE_23,
+    lineNumber: 27,
+    line: README_LINE_27,
     reason:
       'Verified documentation safety statement: README tells readers not to expose the key with the browser prefix.',
   },
   {
     path: 'DEPLOY.md',
-    lineNumber: 136,
-    line: DEPLOY_LINE_136,
+    lineNumber: 129,
+    line: DEPLOY_LINE_129,
     reason:
       'Verified documentation safety statement: DEPLOY forbids the browser prefix because it is bundled to the client.',
   },
   {
     path: 'DEPLOY.md',
-    lineNumber: 259,
-    line: DEPLOY_LINE_259,
+    lineNumber: 260,
+    line: DEPLOY_LINE_260,
     reason:
       'Verified documentation safety statement: deployment checklist says the prefix must not appear as a key.',
   },
   {
     path: 'DEPLOY.md',
-    lineNumber: 285,
-    line: DEPLOY_LINE_285,
+    lineNumber: 287,
+    line: DEPLOY_LINE_287,
     reason:
       'Verified documentation safety statement: troubleshooting text says not to misuse the prefix.',
   },
@@ -844,10 +844,10 @@ void test('workspace browser-prefix hits are exactly the four verified lines', (
   }
   hits.sort();
   assert.deepEqual(hits, [
-    'DEPLOY.md:136',
-    'DEPLOY.md:259',
-    'DEPLOY.md:285',
-    'README.md:23',
+    'DEPLOY.md:129',
+    'DEPLOY.md:260',
+    'DEPLOY.md:287',
+    'README.md:27',
   ]);
 });
 
@@ -871,14 +871,14 @@ void test('verified documentation safety statements pass', () => {
 void test('a documentation line that is not the verified statement fails', () => {
   const files = allowlistedDocMap();
   const lines = (files.get('README.md') ?? '').split('\n');
-  lines[22] = `${lines[22] ?? ''} ${BROWSER_PREFIX}OPENAI_${'API_KEY'}=present`;
+  lines[26] = `${lines[26] ?? ''} ${BROWSER_PREFIX}OPENAI_${'API_KEY'}=present`;
   files.set('README.md', lines.join('\n'));
   const findings = checkSecretHygiene(files);
   assert.ok(
     findings.some(
       (finding) =>
         finding.path === 'README.md' &&
-        finding.line === 23 &&
+        finding.line === 27 &&
         finding.rule === 'next-public-prefix',
     ),
   );
