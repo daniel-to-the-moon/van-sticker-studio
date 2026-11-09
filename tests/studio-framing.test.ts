@@ -30,7 +30,7 @@ void test('responsive framing fits full vehicle on portrait and landscape canvas
             maximum = Math.max(maximum, Math.abs(p.x), Math.abs(p.y));
           }
       assert.ok(
-        maximum <= 0.731 && maximum >= 0.68,
+        maximum <= 0.521 && maximum >= 0.48,
         `framing ${aspect}: ${maximum}`,
       );
     }

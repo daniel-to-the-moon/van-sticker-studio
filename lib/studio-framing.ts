@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-/** Fit actual geometry, preserving a calm 27% margin on every viewport. */
+/** Keep default views compact, with the vehicle inside the central 52% of the viewport. */
 export function fitStudioCamera(
   box: THREE.Box3,
   direction: readonly number[],
@@ -13,7 +13,7 @@ export function fitStudioCamera(
     .normalize();
   const up = new THREE.Vector3().crossVectors(back, right).normalize();
   const tan = Math.tan(THREE.MathUtils.degToRad(fov) / 2),
-    fill = 0.73;
+    fill = 0.52;
   let distance = 0.1;
   for (const x of [box.min.x, box.max.x])
     for (const y of [box.min.y, box.max.y])
