@@ -119,7 +119,7 @@ export default function Home() {
   const [conceptsOpen, setConceptsOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [sequence, setSequence] = useState(false);
-  const [view, setView] = useState('hero');
+  const [view, setView] = useState('driver');
   const [exportView, setExportView] = useState<DrawingExportViewId>('entry');
   // Same default-off switch as the other quick entries. The query only
   // reveals the exporter for review; it does not change SHOW_QUICK_ENTRIES.
@@ -525,7 +525,7 @@ export default function Home() {
         <span className="studio-name">
           WRAP STUDIO <span className="beta">01</span>
         </span>
-        <span className="top-caption">YOUR VAN. YOUR CANVAS.</span>
+        <Link className="free-design-entry" href="/design">{lang === 'zh' ? '自由贴画' : 'Free design'}</Link>
         <fieldset className="lang-switch" aria-label="Language / 语言">
           <button
             aria-pressed={lang === 'en'}
@@ -555,7 +555,6 @@ export default function Home() {
       <div className="workspace">
         <aside className="design-panel">
           <div className="panel-heading">
-            <span className="eyebrow">01 / MAKE IT YOURS</span>
             <h1>{t(lang, 'page.heroTitle')}</h1>
             <p>{t(lang, 'page.heroSub')}</p>
           </div>
@@ -827,8 +826,6 @@ export default function Home() {
             />
           )}
           <div className="panel-footer">
-            <span className="tiny-line" />
-            DESIGNED TO GO PLACES
             <ArrowUpRight size={15} />
             <Link className="body-lab-link" href="/body-lab">
               {t(lang, 'page.bodyLabLink')}
@@ -860,13 +857,7 @@ export default function Home() {
               setReady(true);
             }}
           />
-          <div className="scene-title">
-            <span className="eyebrow">01 / SURFACE STUDY</span>
-            <h2>MXGARAGE VAN</h2>
-            <span>
-              {applied ? applied.subtitle : t(lang, 'page.startBlank')}
-            </span>
-          </div>
+          <h2 className="sr-only">MXGARAGE VAN</h2>
           <div className="scene-toolbar">
             {showDrawingExport ? (
               <fieldset
@@ -950,17 +941,10 @@ export default function Home() {
               className="round-control"
               title={t(lang, 'page.resetView')}
               aria-label={t(lang, 'page.resetView')}
-              onClick={() => changeView('hero')}
+              onClick={() => changeView('driver')}
             >
               <RotateCcw size={16} />
             </button>
-          </div>
-          <div className="drawing-furniture" aria-hidden="true">
-            <span className="sheet-index">VAN / 001</span>
-            <span className="sheet-rule">BODY &amp; GRAPHIC STUDY</span>
-            <span className="sheet-caption">DESCRIBE → GENERATE → APPLY</span>
-            <i className="sheet-cross cross-a" />
-            <i className="sheet-cross cross-b" />
           </div>
           {busy && (
             <output className="drawing-wait">
@@ -1099,10 +1083,6 @@ export default function Home() {
                 ))}
               </div>
             )}
-            <span className="live-caption">
-              <span />
-              360° LIVE
-            </span>
           </div>
         </section>
           <PalettePicker

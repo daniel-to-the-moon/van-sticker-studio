@@ -68,8 +68,15 @@ void test('visible copy carries no vehicle brand words', () => {
       assert.ok(!pattern.test(text), `${path} still matches ${pattern}`);
     }
   }
-  assert.ok(read('app/page.tsx').includes('<h2>MXGARAGE VAN</h2>'));
-  assert.ok(read('app/page.tsx').includes('VAN / 001'));
+  assert.ok(
+    read('app/page.tsx').includes('<h2 className="sr-only">MXGARAGE VAN</h2>'),
+  );
+  for (const label of [
+    'VAN / 001',
+    'BODY &amp; GRAPHIC STUDY',
+    'DESCRIBE → GENERATE → APPLY',
+  ])
+    assert.ok(!read('app/page.tsx').includes(label));
   assert.ok(
     read('lib/plan-insights.ts').includes('export const VAN_WRAP_BODY'),
   );

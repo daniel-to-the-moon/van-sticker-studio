@@ -14,10 +14,10 @@ export const DRAWING_EXPORT_FIT = 0.88;
 
 export const STUDIO_VIEW_DIRECTIONS = {
   hero: [-0.83, 0.48, -1],
-  entry: [0, 0.22, -1],
-  driver: [0, 0.22, 1],
-  front: [-1, 0.18, 0],
-  rear: [1, 0.22, 0],
+  entry: [0, 0, -1],
+  driver: [0, 0, 1],
+  front: [-1, 0, 0],
+  rear: [1, 0, 0],
 } as const;
 
 export type StudioViewId = keyof typeof STUDIO_VIEW_DIRECTIONS;

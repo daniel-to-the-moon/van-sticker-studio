@@ -12,6 +12,7 @@ import type {
   Presentation,
   SceneErrorCode,
 } from './scene-engine';
+import type { Project } from '@/lib/free-wrap';
 import type { Sticker } from '@/lib/stickers';
 /** Must match STICKER_IMAGE_FAILED in scene-engine (kept as a literal so this module stays type-only over the lazy engine). */
 const STICKER_IMAGE_FAILED = 'sticker-image-failed';
@@ -34,6 +35,7 @@ export interface VehicleHandle {
   exportDrawing: (viewId: string) => { dataUrl: string; filename: string };
 }
 interface Props {
+  design?: Project;
   lang: Lang;
   presentation: Presentation;
   palette: VehiclePalette | null;
@@ -75,6 +77,12 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
     const [progress, setProgress] = useState(0);
     const [ready, setReady] = useState(false);
     const [error, setError] = useState('');
+    useEffect(() => {
+      if (props.design)
+        engine.current
+          ?.setDesign(props.design)
+          .catch(() => setError('贴画预览暂不可用，请重新打开预览'));
+    }, [props.design]);
     const [wrapEdit, setWrapEdit] = useState<WrapEditState | null>(null);
     const menuAction = useRef<HTMLButtonElement>(null);
     useEffect(() => {
@@ -97,9 +105,7 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
           } catch (e) {
             // The engine reports failures as codes; localize before the page displays them.
             if (e instanceof Error && e.message === STICKER_IMAGE_FAILED)
-              throw Error(
-                t(latest.current.lang, 'scene.stickerImageFailed'),
-              );
+              throw Error(t(latest.current.lang, 'scene.stickerImageFailed'));
             throw e;
           }
         },
@@ -140,6 +146,9 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
             onReady: (meta) => {
               if (!active) return;
               setReady(true);
+              engine.current
+                ?.setDesign(latest.current.design ?? null)
+                .catch(() => setError('贴画预览暂不可用，请重新打开预览'));
               engine.current?.setParts(latest.current.parts);
               engine.current?.setWipers(latest.current.wipers);
               engine.current?.setEnvironment(latest.current.environment);
@@ -325,9 +334,7 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
               ) : (
                 <LockKeyhole size={16} />
               )}
-              {wrapEdit.locked
-                ? t(lang, 'wrap.unlock')
-                : t(lang, 'wrap.lock')}
+              {wrapEdit.locked ? t(lang, 'wrap.unlock') : t(lang, 'wrap.lock')}
             </button>
           </div>
         )}

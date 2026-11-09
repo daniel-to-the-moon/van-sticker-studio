@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { fitStudioCamera } from '../../lib/studio-framing.ts';
+import type { Project } from '../../lib/free-wrap.ts';
 import { createDraftingEdges } from '../../lib/drafting-edges.ts';
 import { DrawingSilhouette } from '../../lib/drawing-silhouette.ts';
 import {
@@ -198,7 +200,7 @@ export class SceneEngine {
     this.controls.dampingFactor = 0.07;
     this.controls.minDistance = 4.8;
     this.controls.maxDistance = 16;
-    this.controls.maxPolarAngle = Math.PI * 0.49;
+    this.controls.maxPolarAngle = Math.PI * 0.5;
     this.controls.minPolarAngle = 0.16;
     this.controls.enablePan = true;
     this.controls.panSpeed = 0.5;
@@ -541,25 +543,29 @@ export class SceneEngine {
       this.camp.add(stool);
     });
   }
-  private resize() {
+  private cameraManual = false;
+  private resize(refit = true) {
     const w = Math.max(1, this.host.clientWidth),
       h = Math.max(1, this.host.clientHeight);
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    if (refit && this.root && !this.cameraTween && !this.cameraManual)
+      this.fitCamera(false, this.currentView);
   }
-  private fitCamera(smooth = true, view = 'hero') {
-    const target = new THREE.Vector3(
-      0.15,
-      this.host.clientHeight > 500 ? 0.95 : 1.3,
-      0,
+  private currentView = 'driver';
+  private fitCamera(smooth = true, view = 'driver') {
+    if (!this.root) return;
+    this.currentView = view;
+    this.cameraManual = false;
+    const box = new THREE.Box3().setFromObject(this.root, true);
+    const { target, position: to } = fitStudioCamera(
+      box,
+      studioViewDirection(view),
+      this.camera.fov,
+      this.camera.aspect,
     );
-    const wide = this.host.clientWidth / Math.max(this.host.clientHeight, 1);
-    const distance = wide < 1 ? 11.8 : 10.8;
-    const direction = new THREE.Vector3(...studioViewDirection(view));
-    const to = target
-      .clone()
-      .add(direction.normalize().multiplyScalar(distance));
+    this.controls.maxDistance = Math.max(24, to.distanceTo(target) * 2);
     if (smooth && !this.reduced)
       this.cameraTween = {
         from: this.camera.position.clone(),
@@ -633,7 +639,7 @@ export class SceneEngine {
       this.camera.updateMatrixWorld();
       this.controls.target.copy(savedTarget);
       this.renderer.setPixelRatio(savedPixelRatio);
-      this.resize();
+      this.resize(false);
       this.setEnvironment(savedEnvironment);
       this.setPresentation(savedPresentation);
       this.drawingGrid.visible = savedGrid;
@@ -815,7 +821,10 @@ export class SceneEngine {
       this.camera.matrixWorld,
       0,
     );
-    const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
+    const up = new THREE.Vector3().setFromMatrixColumn(
+      this.camera.matrixWorld,
+      1,
+    );
     const focus = this.controls.target.clone();
     // Distance stays put: dollying from the ink box cropped the near edge.
     focus.addScaledVector(right, (centerX - 0.5) * 2 * halfW);
@@ -867,6 +876,9 @@ export class SceneEngine {
     }
     for (const lines of this.drawingLines) lines.visible = value === 'drawing';
     this.drawingGrid.visible = this.environment === 'studio';
+  }
+  async setDesign(project: Project | null) {
+    await this.wrapEditor?.setDesign(project);
   }
   setPalette(palette: VehiclePalette | null) {
     this.palette = palette;
@@ -1051,6 +1063,7 @@ export class SceneEngine {
     this.hooks.onError('webgl-paused');
   };
   private cancelCameraTween = () => {
+    this.cameraManual = true;
     this.cameraTween = null;
   };
   private keyDown = (e: KeyboardEvent) => {
@@ -1227,6 +1240,7 @@ function rgbaToPngDataUrl(pixels: Uint8Array, width: number, height: number) {
   }
   context.putImageData(image, 0, 0);
   const url = canvas.toDataURL('image/png');
-  if (!url.startsWith('data:image/png')) throw new Error('export-capture-failed');
+  if (!url.startsWith('data:image/png'))
+    throw new Error('export-capture-failed');
   return url;
 }
