@@ -774,6 +774,132 @@ export function disposeVerificationBody(root: THREE.Object3D) {
   for (const material of materials) material.dispose();
 }
 
+export function resolveLabVehicle(input: {
+  query: string | null;
+  queryApplied: boolean;
+  current: LabVehicleId;
+  choice: LabVehicleId | null;
+}): { vehicle: LabVehicleId; queryApplied: boolean } {
+  if (input.choice) return { vehicle: input.choice, queryApplied: true };
+  if (!input.queryApplied) {
+    return {
+      vehicle: isLabVehicle(input.query) ? input.query : 'current-glb',
+      queryApplied: true,
+    };
+  }
+  return { vehicle: input.current, queryApplied: true };
+}
+
+const VIEW_DIRECTION: Vec3 = [-0.62, 0.36, -0.7];
+
+function unit(value: Vec3): Vec3 {
+  const length = Math.hypot(value[0], value[1], value[2]) || 1;
+  return [value[0] / length, value[1] / length, value[2] / length];
+}
+
+function addVec(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+}
+
+function subVec(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+function scaleVec(value: Vec3, factor: number): Vec3 {
+  return [value[0] * factor, value[1] * factor, value[2] * factor];
+}
+
+function dotVec(a: Vec3, b: Vec3) {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function crossVec(a: Vec3, b: Vec3): Vec3 {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+function boundsCorners(min: Vec3, max: Vec3): Vec3[] {
+  const corners: Vec3[] = [];
+  for (const x of [min[0], max[0]])
+    for (const y of [min[1], max[1]])
+      for (const z of [min[2], max[2]]) corners.push([x, y, z]);
+  return corners;
+}
+
+/** Normalized device coordinates. z is depth in front of the camera. */
+export function projectVehiclePoint(
+  point: Vec3,
+  view: { target: Vec3; position: Vec3 },
+  aspect: number,
+  fovDeg = 38,
+) {
+  const forward = unit(subVec(view.target, view.position));
+  const right = unit(crossVec(forward, [0, 1, 0]));
+  const up = crossVec(right, forward);
+  const relative = subVec(point, view.position);
+  const depth = dotVec(relative, forward);
+  const tan = Math.tan(((fovDeg * Math.PI) / 180) / 2);
+  return {
+    x: dotVec(relative, right) / (depth * tan * aspect),
+    y: dotVec(relative, up) / (depth * tan),
+    z: depth,
+  };
+}
+
+/**
+ * Front-entry view fitted to the real bounds and the canvas.
+ * The body stays inside about 72% of the frame, so the first view is complete
+ * and slightly small rather than cropped or enlarged.
+ */
+export function fitVehicleView(input: {
+  min: Vec3;
+  max: Vec3;
+  aspect: number;
+  fovDeg?: number;
+}): { target: Vec3; position: Vec3; distance: number } {
+  const fov = input.fovDeg ?? 38;
+  const aspect = Math.max(input.aspect, 0.2);
+  const target: Vec3 = [
+    (input.min[0] + input.max[0]) / 2,
+    (input.min[1] + input.max[1]) / 2,
+    (input.min[2] + input.max[2]) / 2,
+  ];
+  const corners = boundsCorners(input.min, input.max);
+  const radius =
+    Math.max(
+      ...corners.map((corner) => Math.hypot(...subVec(corner, target))),
+    ) || 1;
+  const direction = unit(VIEW_DIRECTION);
+  const fits = (distance: number) => {
+    const position = addVec(target, scaleVec(direction, distance));
+    return corners.every((corner) => {
+      const projected = projectVehiclePoint(corner, { target, position }, aspect, fov);
+      return (
+        projected.z > radius * 0.02 &&
+        Math.abs(projected.x) <= 0.72 &&
+        Math.abs(projected.y) <= 0.72
+      );
+    });
+  };
+  let near = radius * 0.2;
+  let far = Math.max(radius * 12, near + 1);
+  if (!fits(far)) far = radius * 40;
+  for (let step = 0; step < 28; step += 1) {
+    const mid = (near + far) / 2;
+    if (fits(mid)) far = mid;
+    else near = mid;
+  }
+  const distance = far * 1.08;
+  return {
+    target,
+    position: addVec(target, scaleVec(direction, distance)),
+    distance,
+  };
+}
+
 /** Same front-entry three-quarter formula for every profile. */
 export function labCamera(profile: VehicleModelProfile): {
   target: Vec3;

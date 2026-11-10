@@ -6,6 +6,7 @@ import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bakeWrapAttributes } from './vehicle-wrap-adapter.ts';
 import {
   envelopeBody,
+  type PanelFeedback,
   type VehicleModelProfile,
 } from './vehicle-model-profile.ts';
 import {
@@ -107,6 +108,7 @@ export class VehicleWrapEditor {
   } | null = null;
   /** Closed-pose chart span. Later image changes must not remeasure a posed door. */
   private entryDoorSpan: EntryDoorSpan | null = null;
+  private profileFeedback: PanelFeedback[] = [];
   private entryDoorClear = false;
   private entryAdjusted = false;
   private uniforms: { [key: string]: { value: unknown } };
@@ -676,13 +678,18 @@ export class VehicleWrapEditor {
     if (active === 0 && !this.sameDecal(this.placements[0], before))
       this.entryAdjusted = true;
   }
+  getProfileFeedback(): PanelFeedback[] {
+    return this.profileFeedback.map((item) => ({ ...item }));
+  }
   private bindProfile(
     meshes: THREE.Mesh[],
     profile: VehicleModelProfile,
     materials: Set<THREE.MeshStandardMaterial>,
   ) {
+    this.profileFeedback = [];
     for (const mesh of meshes) {
       const baked = bakeWrapAttributes(mesh, profile);
+      this.profileFeedback.push(baked.feedback);
       if (!baked.eligible) continue;
       if (baked.replaced) this.replaced.push(baked.replaced);
       this.surfaces.push(mesh);

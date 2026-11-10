@@ -97,11 +97,14 @@ export type VehicleModelProfile = {
   refusals?: readonly MeshRefusal[];
 };
 export type FeedbackStatus = 'applied' | 'excluded' | 'unsupported';
+export type BakeCoverage = 'full' | 'partial' | 'none';
 export type PanelFeedback = {
   mesh: string;
   panelId: string | null;
   status: FeedbackStatus;
   reason: string;
+  /** Set by the bake path. Rejected meshes must not be shown as applied. */
+  coverage?: BakeCoverage;
 };
 export type LabIcon = 'cup' | 'runner' | 'badge';
 export type LabDesign = {
@@ -272,6 +275,15 @@ export function designCoverage(
       reason: '端面不套用左右侧围设计',
     };
   return classified;
+}
+
+/** Page grouping. A rejected or partly rejected bake is never shown as applied. */
+export function labFeedbackStatus(item: PanelFeedback): FeedbackStatus {
+  if (item.coverage === 'none' || item.coverage === 'partial') {
+    if (item.status === 'applied') return 'unsupported';
+    return item.status;
+  }
+  return item.status;
 }
 
 export function withPanelMotion(

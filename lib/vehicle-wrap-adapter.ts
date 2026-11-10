@@ -400,8 +400,97 @@ function hitsOpening(
       for (let edge = 0; edge < 4; edge += 1)
         if (segmentsCross(start, end, rect[edge], rect[(edge + 1) % 4])) return true;
     }
+    const samples = [
+      { s: (opening.s0 + opening.s1) / 2, h: (opening.h0 + opening.h1) / 2 },
+      { s: opening.s0, h: opening.h0 },
+      { s: opening.s1, h: opening.h0 },
+      { s: opening.s1, h: opening.h1 },
+      { s: opening.s0, h: opening.h1 },
+    ];
+    if (
+      samples.some((sample) =>
+        pointInChartTriangle(sample, points[0], points[1], points[2]),
+      )
+    )
+      return true;
     return false;
   });
+}
+
+function pointInChartTriangle(
+  point: { s: number; h: number },
+  a: { s: number; h: number },
+  b: { s: number; h: number },
+  c: { s: number; h: number },
+) {
+  const area = orient(a, b, c);
+  if (Math.abs(area) < 1e-8) return false;
+  const o1 = orient(a, b, point);
+  const o2 = orient(b, c, point);
+  const o3 = orient(c, a, point);
+  const slack = 1e-5;
+  return area > 0
+    ? o1 > slack && o2 > slack && o3 > slack
+    : o1 < -slack && o2 < -slack && o3 < -slack;
+}
+
+function pointInTriangle3D(point: Vec3, a: Vec3, b: Vec3, c: Vec3, slack: number) {
+  const ab = sub(b, a);
+  const ac = sub(c, a);
+  const ap = sub(point, a);
+  const normal = cross(ab, ac);
+  const area = lengthOf(normal);
+  if (area < 1e-8) return false;
+  if (Math.abs(dot(normal, ap)) / area > slack) return false;
+  const dot00 = dot(ab, ab);
+  const dot01 = dot(ab, ac);
+  const dot11 = dot(ac, ac);
+  const dot02 = dot(ab, ap);
+  const dot12 = dot(ac, ap);
+  const denom = dot00 * dot11 - dot01 * dot01;
+  if (Math.abs(denom) < 1e-12) return false;
+  const u = (dot11 * dot02 - dot01 * dot12) / denom;
+  const v = (dot00 * dot12 - dot01 * dot02) / denom;
+  return u >= -1e-4 && v >= -1e-4 && u + v <= 1 + 1e-4;
+}
+
+function pointInAabb(point: Vec3, min: Vec3, max: Vec3) {
+  return (
+    point[0] >= min[0] &&
+    point[0] <= max[0] &&
+    point[1] >= min[1] &&
+    point[1] <= max[1] &&
+    point[2] >= min[2] &&
+    point[2] <= max[2]
+  );
+}
+
+function projectToPlane(point: Vec3, a: Vec3, b: Vec3, c: Vec3): Vec3 {
+  const normal = cross(sub(b, a), sub(c, a));
+  const area = lengthOf(normal) || 1;
+  const unit = scale(normal, 1 / area);
+  const distance = dot(unit, sub(point, a));
+  return sub(point, scale(unit, distance));
+}
+
+/** A void sitting inside the face, with no edge touching the box, still rejects. */
+function triangleCoversAabb(tri: [Vec3, Vec3, Vec3], min: Vec3, max: Vec3) {
+  const center: Vec3 = [
+    (min[0] + max[0]) / 2,
+    (min[1] + max[1]) / 2,
+    (min[2] + max[2]) / 2,
+  ];
+  const samples: Vec3[] = [center];
+  for (const x of [min[0], max[0]])
+    for (const y of [min[1], max[1]])
+      for (const z of [min[2], max[2]]) samples.push([x, y, z]);
+  if (samples.some((point) => pointInTriangle3D(point, tri[0], tri[1], tri[2], 0.02)))
+    return true;
+  const projected = projectToPlane(center, tri[0], tri[1], tri[2]);
+  return (
+    pointInAabb(projected, min, max) &&
+    pointInTriangle3D(projected, tri[0], tri[1], tri[2], 1e-4)
+  );
 }
 
 function triangleArea(a: Vec3, b: Vec3, c: Vec3) {
@@ -435,15 +524,20 @@ export function adaptTriangle(
     toClosedPoint(panel, toCanonical(b, profile.frame)),
     toClosedPoint(panel, toCanonical(c, profile.frame)),
   ];
-  for (const gap of profile.voids ?? [])
+  for (const gap of profile.voids ?? []) {
+    let covered = false;
     for (let index = 0; index < 3; index += 1)
       if (segmentHitsAabb(closed[index], closed[(index + 1) % 3], gap.min, gap.max))
-        return empty({
-          mesh,
-          panelId: panel.id,
-          status: 'unsupported',
-          reason: gap.reason,
-        });
+        covered = true;
+    if (!covered && triangleCoversAabb(closed, gap.min, gap.max)) covered = true;
+    if (covered)
+      return empty({
+        mesh,
+        panelId: panel.id,
+        status: 'unsupported',
+        reason: gap.reason,
+      });
+  }
   const projected = closed.map((point) => projectPoint(profile, panel, mesh, point));
   const blocked = projected.find((point) => point.feedback.status === 'unsupported');
   if (blocked) return empty(blocked.feedback);
@@ -546,7 +640,12 @@ export function bakeWrapAttributes(
   const feedback = classifyMesh(profile, mesh.name);
   const sourcePosition = mesh.geometry.getAttribute('position');
   if (feedback.status !== 'applied' || !sourcePosition)
-    return { eligible: false, copied: false, replaced: null, feedback };
+    return {
+      eligible: false,
+      copied: false,
+      replaced: null,
+      feedback: { ...feedback, coverage: 'none' },
+    };
   mesh.updateWorldMatrix(true, false);
   const source = mesh.geometry;
   const sourceIndex = source.index;
@@ -627,16 +726,37 @@ export function bakeWrapAttributes(
     }
   }
   if (expanded || !sourceIndex) liftSeam(coords, count, period);
+  const summary = bakeSummary(mesh.name, feedback, decisions, any);
   if (!any) {
     if (replaced) {
       mesh.geometry = replaced;
       geometry.dispose();
     }
-    return { eligible: false, copied: false, replaced: null, feedback };
+    return { eligible: false, copied: false, replaced: null, feedback: summary };
   }
   geometry.setAttribute('aWrapCoord', new THREE.BufferAttribute(coords, 2));
   geometry.setAttribute('aWrapEligible', new THREE.BufferAttribute(eligible, 1));
-  return { eligible: true, copied: replaced != null, replaced, feedback };
+  return { eligible: true, copied: replaced != null, replaced, feedback: summary };
+}
+
+function bakeSummary(
+  mesh: string,
+  classified: PanelFeedback,
+  decisions: AdaptedTriangle[],
+  any: boolean,
+): PanelFeedback {
+  const rejected = decisions.filter((item) => !item.eligible);
+  if (rejected.length === 0) return { ...classified, coverage: 'full' };
+  const primary = rejected[0].feedback;
+  const status = primary.status === 'applied' ? 'unsupported' : primary.status;
+  const partial = any && rejected.length < decisions.length;
+  return {
+    mesh,
+    panelId: classified.panelId,
+    status: partial ? 'unsupported' : status,
+    reason: partial ? `部分三角形被拒绝：${primary.reason}` : primary.reason,
+    coverage: partial ? 'partial' : 'none',
+  };
 }
 
 export function meshStats(root: THREE.Object3D): {

@@ -16,6 +16,7 @@ import { circumference, perimeterCoordinate } from '../lib/wrap-layout.ts';
 import {
   adaptPoint,
   adaptTriangle,
+  bakeWrapAttributes,
   meshStats,
 } from '../lib/vehicle-wrap-adapter.ts';
 import {
@@ -28,6 +29,7 @@ import {
 } from '../lib/vehicle-model-fixtures.ts';
 import {
   canonicalFrame,
+  labFeedbackStatus,
   withPanelMotion,
   type SourceFrame,
   type Vec3,
@@ -706,6 +708,115 @@ void test('the default editor path keeps eligibility, the front transition, cent
     assert.ok(Math.abs(span.h1 - 1.7) < 1e-4);
   } finally {
     doorMount.cleanup();
+  }
+});
+
+void test('a triangle that fully contains an opening or a void is rejected', () => {
+  const envelope = { xMin: -3, length: 6, width: 2.2, height: 3, centerZ: 0 };
+  const corners = [
+    [-2, 0, -1.1],
+    [0, 3, -1.1],
+    [2, 0, -1.1],
+  ] as [Vec3, Vec3, Vec3];
+  const opening: VehicleModelProfile = {
+    id: 'contain-opening',
+    label: '开口包含验证模型',
+    verification: true,
+    frame: canonicalFrame(),
+    envelope,
+    panels: [
+      {
+        id: 'entry',
+        class: 'wrap',
+        meshes: ['cover'],
+        projection: { kind: 'perimeter', face: 'entry' },
+        openings: [{ id: 'hole', s0: 2.8, s1: 3.2, h0: 1.4, h1: 1.6 }],
+      },
+    ],
+  };
+  const covered = adaptTriangle(opening, 'cover', corners[0], corners[1], corners[2]);
+  assert.equal(covered.eligible, false);
+  assert.match(covered.feedback.reason, /开口/);
+  const mesh = triangleMesh('cover', corners);
+  const baked = bakeWrapAttributes(mesh, opening);
+  assert.notEqual(baked.feedback.status, 'applied');
+  assert.notEqual(labFeedbackStatus(baked.feedback), 'applied');
+  const root = new Group();
+  root.add(mesh);
+  const mounted = mount(root, opening);
+  try {
+    const listed = mounted.editor.getProfileFeedback().find((item) => item.mesh === 'cover');
+    assert.ok(listed);
+    assert.notEqual(listed.status, 'applied');
+    assert.notEqual(labFeedbackStatus(listed), 'applied');
+    const flags = mesh.geometry.getAttribute('aWrapEligible');
+    assert.ok(!flags || [...Array(flags.count)].every((_, index) => flags.getX(index) < 0.5));
+  } finally {
+    mounted.cleanup();
+  }
+
+  const pocket: VehicleModelProfile = {
+    ...opening,
+    id: 'contain-void',
+    panels: [
+      {
+        id: 'entry',
+        class: 'wrap',
+        meshes: ['cover'],
+        projection: { kind: 'perimeter', face: 'entry' },
+      },
+    ],
+    voids: [
+      {
+        id: 'pocket',
+        min: [-0.05, 0.95, -1.15],
+        max: [0.05, 1.05, -1.05],
+        reason: '跨空隙连成假面',
+      },
+    ],
+  };
+  const buried = adaptTriangle(pocket, 'cover', corners[0], corners[1], corners[2]);
+  assert.equal(buried.eligible, false);
+  assert.match(buried.feedback.reason, /空隙/);
+});
+
+void test('a fully rejected mesh is never reported as applied', () => {
+  const profile: VehicleModelProfile = {
+    id: 'reject-feedback',
+    label: '拒绝反馈验证模型',
+    verification: true,
+    frame: canonicalFrame(),
+    envelope: { xMin: -3, length: 6, width: 2.2, height: 3, centerZ: 0 },
+    panels: [
+      {
+        id: 'entry',
+        class: 'wrap',
+        meshes: ['cover'],
+        projection: { kind: 'perimeter', face: 'entry' },
+        openings: [{ id: 'hole', s0: 2.8, s1: 3.2, h0: 1.4, h1: 1.6 }],
+      },
+    ],
+  };
+  const mesh = triangleMesh('cover', [
+    [-2, 0, -1.1],
+    [0, 3, -1.1],
+    [2, 0, -1.1],
+  ]);
+  const root = new Group();
+  root.add(mesh);
+  const mounted = mount(root, profile);
+  try {
+    for (const item of mounted.editor.getProfileFeedback()) {
+      if (item.coverage === 'none' || item.coverage === 'partial')
+        assert.notEqual(labFeedbackStatus(item), 'applied', item.mesh);
+    }
+    const cover = mounted.editor.getProfileFeedback().find((item) => item.mesh === 'cover');
+    assert.ok(cover);
+    assert.equal(cover.coverage, 'none');
+    assert.match(cover.reason, /开口/);
+    assert.notEqual(cover.status, 'applied');
+  } finally {
+    mounted.cleanup();
   }
 });
 });

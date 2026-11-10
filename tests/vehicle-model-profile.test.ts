@@ -13,7 +13,12 @@ import {
   type SourceFrame,
   type VehicleModelProfile,
 } from '../lib/vehicle-model-profile.ts';
-import { labProfile } from '../lib/vehicle-model-fixtures.ts';
+import {
+  fitVehicleView,
+  labProfile,
+  projectVehiclePoint,
+  resolveLabVehicle,
+} from '../lib/vehicle-model-fixtures.ts';
 
 const envelope = {
   xMin: -3,
@@ -162,4 +167,63 @@ void test('current asset profile only applies registered wrap meshes', () => {
     assert.equal(labProfile(id).verification, true);
     assert.match(labProfile(id).label, /验证模型/);
   }
+});
+
+void test('a vehicle query is applied once and the same design restores after the switch', () => {
+  const opened = resolveLabVehicle({
+    query: 'high-roof',
+    queryApplied: false,
+    current: 'current-glb',
+    choice: null,
+  });
+  assert.equal(opened.vehicle, 'high-roof');
+  assert.equal(opened.queryApplied, true);
+  const chosen = resolveLabVehicle({
+    query: 'high-roof',
+    queryApplied: true,
+    current: opened.vehicle,
+    choice: 'box-trailer',
+  });
+  assert.equal(chosen.vehicle, 'box-trailer');
+  const rerun = resolveLabVehicle({
+    query: 'high-roof',
+    queryApplied: true,
+    current: chosen.vehicle,
+    choice: null,
+  });
+  assert.equal(rerun.vehicle, 'box-trailer');
+  const design = { ...defaultLabDesign(), text: '路边小馆', x: 0.2 };
+  const restored = parseLabDesign(serializeLabDesign(design));
+  assert.deepEqual(restored, design);
+  assert.equal(
+    placeDesign(labProfile(chosen.vehicle), restored)[2]?.text,
+    '路边小馆',
+  );
+});
+
+void test('fitVehicleView keeps the whole body inside the frame and slightly small', () => {
+  const min = [-3, 0, -1.2] as const;
+  const max = [3, 3.1, 1.2] as const;
+  const view = fitVehicleView({ min, max, aspect: 1.35, fovDeg: 38 });
+  const samples = [
+    [min[0], min[1], min[2]],
+    [min[0], min[1], max[2]],
+    [min[0], max[1], min[2]],
+    [min[0], max[1], max[2]],
+    [max[0], min[1], min[2]],
+    [max[0], min[1], max[2]],
+    [max[0], max[1], min[2]],
+    [max[0], max[1], max[2]],
+  ] as const;
+  const projected = samples.map((point) =>
+    projectVehiclePoint(point, view, 1.35, 38),
+  );
+  for (const point of projected) {
+    assert.ok(point.z > 0);
+    assert.ok(Math.abs(point.x) <= 0.78);
+    assert.ok(Math.abs(point.y) <= 0.78);
+  }
+  const widest = Math.max(...projected.map((point) => Math.max(Math.abs(point.x), Math.abs(point.y))));
+  assert.ok(widest > 0.45);
+  assert.ok(widest <= 0.72);
 });
