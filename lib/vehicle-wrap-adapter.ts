@@ -29,6 +29,8 @@ export type AdaptedTriangle = {
   eligible: boolean;
   feedback: PanelFeedback;
   stretch: number | null;
+  /** Zero-area face. It is not inked, and it does not reduce mesh coverage. */
+  degenerate?: boolean;
 };
 
 export type BakeResult = {
@@ -517,12 +519,15 @@ export function adaptTriangle(
     stretch,
   });
   if (triangleArea(a, b, c) < 1e-8)
-    return empty({
-      mesh,
-      panelId: findPanel(profile, mesh)?.id ?? null,
-      status: 'unsupported',
-      reason: '退化面',
-    });
+    return {
+      ...empty({
+        mesh,
+        panelId: findPanel(profile, mesh)?.id ?? null,
+        status: 'unsupported',
+        reason: '退化面',
+      }),
+      degenerate: true,
+    };
   const classified = classifyMesh(profile, mesh);
   const panel = findPanel(profile, mesh);
   if (!panel || classified.status !== 'applied') return empty(classified);
@@ -752,11 +757,21 @@ function bakeSummary(
   decisions: AdaptedTriangle[],
   any: boolean,
 ): PanelFeedback {
-  const rejected = decisions.filter((item) => !item.eligible);
+  const countable = decisions.filter((item) => item.degenerate !== true);
+  const rejected = countable.filter((item) => !item.eligible);
+  if (countable.length === 0 && decisions.length > 0) {
+    return {
+      mesh,
+      panelId: classified.panelId,
+      status: 'unsupported',
+      reason: '退化面',
+      coverage: 'none',
+    };
+  }
   if (rejected.length === 0) return { ...classified, coverage: 'full' };
   const primary = rejected[0].feedback;
   const status = primary.status === 'applied' ? 'unsupported' : primary.status;
-  const partial = any && rejected.length < decisions.length;
+  const partial = any && rejected.length < countable.length;
   return {
     mesh,
     panelId: classified.panelId,

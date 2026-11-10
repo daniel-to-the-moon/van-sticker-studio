@@ -343,6 +343,20 @@ void test('the editor keeps the legacy chart unless a profile is supplied', () =
   }
 });
 
+function panelMesh(name: string, triangles: readonly (readonly [Vec3, Vec3, Vec3])[]) {
+  const values: number[] = [];
+  for (const triangle of triangles) for (const corner of triangle) values.push(...corner);
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array(values), 3));
+  geometry.setIndex(triangles.flatMap((_, index) => [index * 3, index * 3 + 1, index * 3 + 2]));
+  geometry.computeVertexNormals();
+  const material = new MeshStandardMaterial();
+  material.name = 'Wrap_Lab';
+  const mesh = new Mesh(geometry, material);
+  mesh.name = name;
+  return mesh;
+}
+
 function triangleMesh(name: string, corners: readonly [Vec3, Vec3, Vec3]) {
   const geometry = new BufferGeometry();
   geometry.setAttribute(
@@ -820,6 +834,177 @@ void test('a fully rejected mesh is never reported as applied', () => {
     assert.equal(cover.coverage, 'none');
     assert.match(cover.reason, /开口/);
     assert.notEqual(cover.status, 'applied');
+  } finally {
+    mounted.cleanup();
+  }
+});
+
+void test('zero-area triangles do not mark a wrapped panel unsupported', () => {
+  const profile = labProfile('box-trailer');
+  const z = BOX_TRAILER.door.z;
+  const degenerate: [Vec3, Vec3, Vec3] = [
+    [1.5, 0.9, z],
+    [1.5, 0.9, z],
+    [1.5, 0.9, z],
+  ];
+  const good: [Vec3, Vec3, Vec3] = [
+    [1.4, 0.8, z],
+    [1.2, 0.8, z],
+    [1.2, 1.1, z],
+  ];
+  const inward: [Vec3, Vec3, Vec3] = [
+    [1.4, 0.8, z],
+    [1.8, 0.8, z],
+    [1.4, 1.2, z],
+  ];
+  const opening: [Vec3, Vec3, Vec3] = [
+    [BOX_TRAILER.window.x0 - 0.15, 1.6, z],
+    [BOX_TRAILER.window.x1 + 0.15, 1.6, z],
+    [BOX_TRAILER.window.x0 + 0.2, BOX_TRAILER.window.y1 + 0.12, z],
+  ];
+  const collapsed = adaptTriangle(profile, 'trailer_entry', ...degenerate);
+  assert.equal(collapsed.eligible, false);
+  assert.equal(collapsed.feedback.reason, '退化面');
+
+  const wrapped = panelMesh('trailer_entry', [degenerate, good]);
+  const wrappedRoot = new Group();
+  wrappedRoot.add(wrapped);
+  const wrappedMount = mount(wrappedRoot, profile);
+  try {
+    const item = wrappedMount.editor
+      .getProfileFeedback()
+      .find((entry) => entry.mesh === 'trailer_entry');
+    assert.ok(item);
+    assert.equal(item.coverage, 'full');
+    assert.equal(item.status, 'applied');
+    assert.equal(labFeedbackStatus(item), 'applied');
+    assert.doesNotMatch(item.reason, /退化/);
+    const flags = wrapped.geometry.getAttribute('aWrapEligible');
+    assert.ok(flags);
+    assert.ok([...Array(flags.count)].some((_, index) => flags.getX(index) >= 0.5));
+  } finally {
+    wrappedMount.cleanup();
+  }
+
+  const mixed = panelMesh('trailer_entry', [degenerate, good, inward]);
+  const mixedRoot = new Group();
+  mixedRoot.add(mixed);
+  const mixedMount = mount(mixedRoot, profile);
+  try {
+    const item = mixedMount.editor
+      .getProfileFeedback()
+      .find((entry) => entry.mesh === 'trailer_entry');
+    assert.ok(item);
+    assert.equal(item.coverage, 'partial');
+    assert.equal(labFeedbackStatus(item), 'unsupported');
+    assert.match(item.reason, /内表面/);
+    assert.doesNotMatch(item.reason, /退化/);
+  } finally {
+    mixedMount.cleanup();
+  }
+
+  const blocked = panelMesh('trailer_entry', [degenerate, opening]);
+  const blockedRoot = new Group();
+  blockedRoot.add(blocked);
+  const blockedMount = mount(blockedRoot, profile);
+  try {
+    const item = blockedMount.editor
+      .getProfileFeedback()
+      .find((entry) => entry.mesh === 'trailer_entry');
+    assert.ok(item);
+    assert.equal(item.coverage, 'none');
+    assert.notEqual(item.status, 'applied');
+    assert.equal(labFeedbackStatus(item), 'unsupported');
+    assert.match(item.reason, /开口/);
+    assert.doesNotMatch(item.reason, /退化/);
+  } finally {
+    blockedMount.cleanup();
+  }
+
+  const onlyDegenerate = panelMesh('trailer_entry', [degenerate]);
+  const onlyRoot = new Group();
+  onlyRoot.add(onlyDegenerate);
+  const onlyMount = mount(onlyRoot, profile);
+  try {
+    const item = onlyMount.editor
+      .getProfileFeedback()
+      .find((entry) => entry.mesh === 'trailer_entry');
+    assert.ok(item);
+    assert.equal(item.coverage, 'none');
+    assert.notEqual(labFeedbackStatus(item), 'applied');
+    assert.match(item.reason, /退化/);
+  } finally {
+    onlyMount.cleanup();
+  }
+});
+
+void test('the original driver panel is not unsupported when only degenerates are rejected', async () => {
+  const bytes = fs.readFileSync('public/model/mxgarage-rv.glb');
+  const { scene } = await new GLTFLoader().parseAsync(
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    '',
+  );
+  scene.updateMatrixWorld(true);
+  const profile = labProfile('current-glb');
+  const found = scene.getObjectByName('RV_Static_Wrap_Driver');
+  assert.ok(found instanceof Mesh);
+  const driver = found;
+  const position = driver.geometry.getAttribute('position');
+  const index = driver.geometry.index;
+  assert.ok(position && index);
+  const before = new Vector3()
+    .fromBufferAttribute(position, index.getX(0))
+    .applyMatrix4(driver.matrixWorld);
+  const held = driver.matrixWorld.clone();
+  const root = new Group();
+  root.add(driver);
+  driver.matrix.copy(held);
+  driver.matrix.decompose(driver.position, driver.quaternion, driver.scale);
+  root.updateMatrixWorld(true);
+  const after = new Vector3()
+    .fromBufferAttribute(position, index.getX(0))
+    .applyMatrix4(driver.matrixWorld);
+  assert.ok(after.distanceTo(before) < 1e-6);
+  const worldPoint = new Vector3();
+  const cornerAt = (corner: number): Vec3 => {
+    worldPoint.fromBufferAttribute(position, index.getX(corner)).applyMatrix4(driver.matrixWorld);
+    return [worldPoint.x, worldPoint.y, worldPoint.z];
+  };
+  let degenerate = 0;
+  let eligible = 0;
+  let rejected = 0;
+  for (let triangle = 0; triangle < index.count; triangle += 3) {
+    const decision = adaptTriangle(
+      profile,
+      driver.name,
+      cornerAt(triangle),
+      cornerAt(triangle + 1),
+      cornerAt(triangle + 2),
+    );
+    if (!decision.eligible && decision.feedback.reason === '退化面') degenerate += 1;
+    else if (decision.eligible) eligible += 1;
+    else rejected += 1;
+  }
+  assert.ok(degenerate > 0);
+  assert.equal(rejected, 0);
+  assert.ok(eligible > degenerate);
+
+  const mounted = mount(root, profile);
+  try {
+    const item = mounted.editor
+      .getProfileFeedback()
+      .find((entry) => entry.mesh === 'RV_Static_Wrap_Driver');
+    assert.ok(item);
+    assert.equal(item.coverage, 'full');
+    assert.equal(item.status, 'applied');
+    assert.equal(labFeedbackStatus(item), 'applied');
+    assert.doesNotMatch(item.reason, /退化/);
+    const flags = driver.geometry.getAttribute('aWrapEligible');
+    assert.ok(flags);
+    let inked = 0;
+    for (let vertex = 0; vertex < flags.count; vertex += 1)
+      if (flags.getX(vertex) >= 0.5) inked += 1;
+    assert.ok(inked > 0);
   } finally {
     mounted.cleanup();
   }
