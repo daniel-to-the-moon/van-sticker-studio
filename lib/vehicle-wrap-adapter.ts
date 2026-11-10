@@ -156,13 +156,12 @@ function projectPoint(
         'unsupported',
         '点不在声明的周长面上，拒绝拉伸到矩形周长',
       );
-    const s = perimeterCoordinate(point[0], point[2], body);
-    const h = point[1];
     const side = projection.face === 'entry' || projection.face === 'driver';
-    if (!side)
+    if (!side) {
+      const s = perimeterCoordinate(point[0], point[2], body);
       return {
         s,
-        h,
+        h: point[1],
         shaderS: null,
         shaderH: null,
         eligible: false,
@@ -173,11 +172,19 @@ function projectPoint(
           reason: '端面不套用左右侧围设计',
         },
       };
+    }
+    // Side chart is linear in x. The radial perimeter map bends across a
+    // T-junction, so a long edge and the subdivided edge beside it disagree.
+    const shaded = sideShader(
+      profile,
+      projection.face === 'driver' ? 'driver' : 'entry',
+      point,
+    );
     return {
-      s,
-      h,
-      shaderS: s,
-      shaderH: h,
+      s: shaded.shaderS,
+      h: point[1],
+      shaderS: shaded.shaderS,
+      shaderH: shaded.shaderH,
       eligible: true,
       feedback: { mesh, panelId: panel.id, status: 'applied', reason: '侧围设计坐标' },
     };

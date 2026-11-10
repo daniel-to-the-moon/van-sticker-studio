@@ -1,5 +1,6 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   BoxGeometry,
   BufferAttribute,
@@ -8,8 +9,11 @@ import {
   Mesh,
   MeshStandardMaterial,
   OrthographicCamera,
+  Raycaster,
+  Triangle,
   Vector3,
 } from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { VehicleWrapEditor } from '../lib/vehicle-wrap-editor.ts';
 import { circumference, perimeterCoordinate } from '../lib/wrap-layout.ts';
@@ -29,6 +33,7 @@ import {
 } from '../lib/vehicle-model-fixtures.ts';
 import {
   canonicalFrame,
+  designMarks,
   labFeedbackStatus,
   withPanelMotion,
   type SourceFrame,
@@ -819,4 +824,112 @@ void test('a fully rejected mesh is never reported as applied', () => {
     mounted.cleanup();
   }
 });
+});
+
+void test('the original entry seam stays continuous for the reported decal', async () => {
+  const bytes = fs.readFileSync('public/model/mxgarage-rv.glb');
+  const { scene } = await new GLTFLoader().parseAsync(
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    '',
+  );
+  scene.updateMatrixWorld(true);
+  const profile = labProfile('current-glb');
+  const entry = scene.getObjectByName('RV_Static_Wrap_Entry');
+  const driver = scene.getObjectByName('RV_Static_Wrap_Driver');
+  const door = scene.getObjectByName('RV_WebRig_EntryDoor_Wrap_Entry');
+  assert.ok(entry instanceof Mesh && driver instanceof Mesh && door instanceof Mesh);
+  for (const mesh of [entry, driver, door]) bakeWrapAttributes(mesh, profile);
+  const design = {
+    version: 1 as const,
+    text: 'MXGARAGE',
+    icon: 'cup' as const,
+    swatch: '#c4553a',
+    x: 0.45,
+    y: 0.44,
+    scale: 0.81,
+  };
+  const swatch = designMarks(design).find((mark) => mark.kind === 'swatch');
+  assert.ok(swatch);
+  const length = profile.envelope.length;
+  const boundaryS = (1 - swatch.editorX - swatch.w) * length;
+  assert.ok(Math.abs(boundaryS - 0.46516) < 0.001);
+  const ray = new Raycaster();
+  const sample = (mesh: Mesh, x: number, y: number, fromPositiveZ: boolean) => {
+    const origin = new Vector3(x, y, fromPositiveZ ? 3 : -3);
+    const direction = new Vector3(0, 0, fromPositiveZ ? -1 : 1);
+    ray.set(origin, direction);
+    const hit = ray.intersectObject(mesh, false)[0];
+    if (!hit?.face) return null;
+    const position = mesh.geometry.getAttribute('position');
+    const coord = mesh.geometry.getAttribute('aWrapCoord');
+    const ids = [hit.face.a, hit.face.b, hit.face.c];
+    const points = ids.map((id) =>
+      new Vector3().fromBufferAttribute(position, id).applyMatrix4(mesh.matrixWorld),
+    );
+    const bary = new Triangle(points[0], points[1], points[2]).getBarycoord(
+      hit.point,
+      new Vector3(),
+    );
+    if (!bary) return null;
+    const s =
+      coord.getX(ids[0]) * bary.x +
+      coord.getX(ids[1]) * bary.y +
+      coord.getX(ids[2]) * bary.z;
+    return { s: ((s % 16.04) + 16.04) % 16.04, point: hit.point };
+  };
+  const jump = (mesh: Mesh, x: number, y: number, positive: boolean) => {
+    const below = sample(mesh, x, y - 0.00001, positive);
+    const above = sample(mesh, x, y + 0.00001, positive);
+    assert.ok(below && above, `${mesh.name} ${x} ${y}`);
+    return Math.abs(above.s - below.s);
+  };
+  for (const x of [1.0, 1.5, 2.0])
+    assert.ok(jump(entry, x, 1.25, false) < 0.001, `entry x=${x}`);
+  for (const [place, scale] of [
+    [0.2, 1],
+    [0.45, 0.81],
+    [0.3, 0.6],
+  ] as const) {
+    const mark = designMarks({ ...design, x: place, scale }).find(
+      (item) => item.kind === 'swatch',
+    );
+    assert.ok(mark);
+    const edge = (1 - place - mark.w) * length;
+    assert.ok(edge > 0.05 && edge < length - 0.05, `${place} ${scale}`);
+    const xAt = (y: number) => {
+      let best = 0;
+      let bestDelta = Infinity;
+      for (let x = 0.2; x <= 2.8; x += 0.02) {
+        const hit = sample(entry, x, y, false);
+        if (!hit) continue;
+        const delta = Math.abs(hit.s - edge);
+        if (delta < bestDelta) {
+          best = x;
+          bestDelta = delta;
+        }
+      }
+      assert.ok(bestDelta < 0.05, `scale ${scale} y ${y}`);
+      return best;
+    };
+    assert.ok(Math.abs(xAt(1.24999) - xAt(1.25001)) < 0.002, `scale ${scale}`);
+  }
+  for (const x of [0.2, 1.2, 2.2])
+    for (const y of [0.9, 1.1, 1.25])
+      assert.ok(jump(driver, x, y, true) < 0.001, `driver ${x} ${y}`);
+  const doorVertex = new Vector3().fromBufferAttribute(
+    door.geometry.getAttribute('position'),
+    0,
+  );
+  const closed = doorVertex.clone().applyMatrix4(door.matrixWorld);
+  const doorS = door.geometry.getAttribute('aWrapCoord').getX(0);
+  const rig = scene.getObjectByName('WebRig_EntryDoor');
+  assert.ok(rig);
+  rig.rotateY(0.9);
+  rig.updateMatrixWorld(true);
+  const opened = doorVertex.clone().applyMatrix4(door.matrixWorld);
+  assert.ok(opened.distanceTo(closed) > 0.05);
+  assert.equal(door.geometry.getAttribute('aWrapCoord').getX(0), doorS);
+  const nearby = sample(entry, closed.x, Math.min(closed.y, 2.2), false);
+  assert.ok(nearby);
+  assert.ok(Math.abs(nearby.s - (((doorS % 16.04) + 16.04) % 16.04)) < 0.05);
 });

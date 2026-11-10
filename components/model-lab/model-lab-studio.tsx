@@ -56,10 +56,13 @@ export default function ModelLabStudio() {
   const host = useRef<HTMLDivElement>(null);
   const editorRef = useRef<VehicleWrapEditor | null>(null);
   const queryApplied = useRef(false);
+  const designInit = useRef(false);
   const boundsRef = useRef<{ min: Vec3; max: Vec3 } | null>(null);
   const resetView = useRef<() => void>(() => {});
   const designRef = useRef<LabDesign>(defaultLabDesign());
   const [vehicle, setVehicle] = useState<LabVehicleId>(ORIGINAL);
+  const [doorOpen, setDoorOpen] = useState(false);
+  const rootRef = useRef<THREE.Object3D | null>(null);
   const [design, setDesign] = useState<LabDesign>(defaultLabDesign());
   const [feedback, setFeedback] = useState<PanelFeedback[]>([]);
   const [stats, setStats] = useState({ triangles: 0, drawCalls: 0, degenerate: 0 });
@@ -73,6 +76,31 @@ export default function ModelLabStudio() {
   };
 
   useEffect(() => {
+    if (!designInit.current) {
+      designInit.current = true;
+      const params = new URLSearchParams(window.location.search);
+      const num = (key: string) => {
+        const raw = params.get(key);
+        if (raw == null || raw === '') return undefined;
+        const value = Number(raw);
+        return Number.isFinite(value) ? value : undefined;
+      };
+      const x = num('x');
+      const y = num('y');
+      const scale = num('scale');
+      const text = params.get('text');
+      if (x != null || y != null || scale != null || text) {
+        const next = {
+          ...defaultLabDesign(),
+          ...(x != null ? { x } : {}),
+          ...(y != null ? { y } : {}),
+          ...(scale != null ? { scale } : {}),
+          ...(text ? { text } : {}),
+        };
+        designRef.current = next;
+        queueMicrotask(() => setDesign(next));
+      }
+    }
     if (!queryApplied.current) {
       const next = resolveLabVehicle({
         query: new URLSearchParams(window.location.search).get('vehicle'),
@@ -160,7 +188,30 @@ export default function ModelLabStudio() {
         min: [box.min.x, box.min.y, box.min.z],
         max: [box.max.x, box.max.y, box.max.z],
       };
-      fit();
+      rootRef.current = loaded;
+      const shot = new URLSearchParams(window.location.search).get('view');
+      if (shot === 'entry-seam') {
+        camera.position.set(2.15, 1.32, -2.55);
+        controls.target.set(2.15, 1.25, -1.06);
+        camera.near = 0.05;
+        camera.far = 30;
+        camera.updateProjectionMatrix();
+        controls.update();
+      } else if (shot === 'driver-seam') {
+        camera.position.set(1.4, 1.32, 2.45);
+        controls.target.set(1.4, 1.25, 0.97);
+        camera.near = 0.05;
+        camera.far = 30;
+        camera.updateProjectionMatrix();
+        controls.update();
+      } else if (shot === 'entry-door') {
+        camera.position.set(0.35, 1.35, -2.7);
+        controls.target.set(0.35, 1.25, -1.06);
+        camera.near = 0.05;
+        camera.far = 30;
+        camera.updateProjectionMatrix();
+        controls.update();
+      } else fit();
       editor = new VehicleWrapEditor({
         root: loaded,
         camera,
@@ -190,6 +241,7 @@ export default function ModelLabStudio() {
     return () => {
       cancelled = true;
       boundsRef.current = null;
+      rootRef.current = null;
       cancelAnimationFrame(frame);
       observer.disconnect();
       editorRef.current = null;
@@ -224,6 +276,13 @@ export default function ModelLabStudio() {
       return next;
     });
   };
+  useEffect(() => {
+    const rig = rootRef.current?.getObjectByName('WebRig_EntryDoor');
+    if (!rig) return;
+    rig.rotation.y = doorOpen ? 1.05 : 0;
+    rig.updateMatrixWorld(true);
+  }, [doorOpen, ready]);
+
   const select = (choice: LabVehicleId) => {
     queryApplied.current = true;
     setVehicle(chooseVehicle(vehicle, choice));
@@ -304,6 +363,39 @@ export default function ModelLabStudio() {
               onChange={(event) => update({ swatch: event.target.value })}
             />
           </label>
+          <label className="model-lab-field">
+            前后位置 {design.x.toFixed(2)}
+            <input
+              type="range"
+              min={0}
+              max={0.6}
+              step={0.01}
+              value={design.x}
+              onChange={(event) => update({ x: Number(event.target.value) })}
+            />
+          </label>
+          <label className="model-lab-field">
+            上下位置 {design.y.toFixed(2)}
+            <input
+              type="range"
+              min={0}
+              max={0.6}
+              step={0.01}
+              value={design.y}
+              onChange={(event) => update({ y: Number(event.target.value) })}
+            />
+          </label>
+          <label className="model-lab-field">
+            缩放 {design.scale.toFixed(2)}
+            <input
+              type="range"
+              min={0.4}
+              max={1.6}
+              step={0.01}
+              value={design.scale}
+              onChange={(event) => update({ scale: Number(event.target.value) })}
+            />
+          </label>
           <div className="model-lab-actions">
             <button
               type="button"
@@ -343,6 +435,16 @@ export default function ModelLabStudio() {
             <button type="button" className="model-lab-ghost" onClick={() => resetView.current()}>
               入框
             </button>
+            {vehicle === ORIGINAL ? (
+              <button
+                type="button"
+                className="model-lab-ghost"
+                aria-pressed={doorOpen}
+                onClick={() => setDoorOpen((open) => !open)}
+              >
+                {doorOpen ? '关门' : '开门'}
+              </button>
+            ) : null}
           </div>
           <p className="model-lab-note">{notice}</p>
           <details className="model-lab-diagnostics">
