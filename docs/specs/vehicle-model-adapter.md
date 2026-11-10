@@ -2,6 +2,8 @@
 
 冻结版本：本文件随 `feature/85-vehicle-model-adapter` 提交。base 为 main `112f4a26b95cda32a077ceca3210282ff663fa2a`。未合入 main 前，不以本分支替换现行编辑器行为。
 
+2026-11-10 follow-up（#88 合并后复评，Issue #93）：零面积退化三角形不把已经贴上的面板标成无法支持。`/model-lab` 的 `x` / `y` / `scale` / `text` 与 `parseLabDesign` 使用同一范围。
+
 ## 目标
 
 把车身比例、轴向、原点和可贴/不可贴分类从当前车型里抽成可验证契约。适配器按契约给出稳定贴图坐标和显式反馈。`/model-lab` 用这套适配器和 `VehicleWrapEditor` 的真实贴画着色路径查看同一套文字、图标、色块设计。
@@ -38,7 +40,7 @@
 
 - `adaptPoint(profile, mesh, world)` → 规范坐标、图坐标、着色器坐标、是否可贴、反馈。
 - `adaptTriangle(...)` → 跨空隙、跨开口、内表面、退化面或拉伸超限时不可贴，并给出原因。
-- `bakeWrapAttributes(mesh, profile)` → 写入 `aWrapCoord` / `aWrapEligible`，并返回真实覆盖反馈。每个三角形都走 `adaptTriangle`。开口或空洞被三角形完全包住时同样拒绝。全部拒绝的网格状态不是 `applied`。开口边界上的墙面顶点保留真实周长坐标。左右侧围按车长线性取坐标，避免径向周长映射在同一网格的 T 形接缝两侧错开。局部入户/驾驶面也按同一车长位置取侧围坐标。只有接缝或「拒绝三角形与合格三角形共用顶点」时才复制几何。
+- `bakeWrapAttributes(mesh, profile)` → 写入 `aWrapCoord` / `aWrapEligible`，并返回真实覆盖反馈。每个三角形都走 `adaptTriangle`。开口或空洞被三角形完全包住时同样拒绝。全部实质拒绝的网格状态不是 `applied`。零面积退化三角形仍然不可贴、不写入可贴属性，但不计入覆盖：一块面板上其余三角形都可贴时，覆盖为 `full`，状态保持 `applied`。开口、空隙、内表面、离开所声明平面和拉伸超限仍把覆盖记成 `partial` 或 `none`，原因用这些规则，不用「退化面」代替。开口边界上的墙面顶点保留真实周长坐标。左右侧围按车长线性取坐标，避免径向周长映射在同一网格的 T 形接缝两侧错开。局部入户/驾驶面也按同一车长位置取侧围坐标。只有接缝或「拒绝三角形与合格三角形共用顶点」时才复制几何。退化三角形若与合格三角形共用顶点，仍按这条复制，不因此把面板标成无法支持。
 - `meshStats(root)` → 三角面数、绘制调用、退化面数。
 
 `VehicleWrapEditor` 构造参数增加可选 `profile?: VehicleModelProfile`。
@@ -56,7 +58,7 @@
 | --- | --- |
 | `applied` | 顶点落在已登记侧围域，可以进现有贴画着色器 |
 | `excluded` | 面板已知，但本设计不贴：玻璃、灯具、轮胎、内饰、饰件、开口、曲面顶、阶梯/端面 |
-| `unsupported` | 不能安全投影：未登记网格、左手系以外的坏投影、跨空隙假面、离开所声明平面、拉伸超限、退化面 |
+| `unsupported` | 不能安全投影：未登记网格、左手系以外的坏投影、跨空隙假面、离开所声明平面、拉伸超限。单个退化三角形也返回这个状态，但只由退化三角形组成的拒绝不把其余已贴上的面板标成无法支持 |
 
 不允许把这些面静默拉进同一个侧围矩形。
 
@@ -73,7 +75,7 @@
 
 ## `/model-lab`
 
-页面创建 `WebGLRenderer`，调用 `bakeWrapAttributes` 所在的 `VehicleWrapEditor`，并用 `setDesign` 走现行贴画着色器。设计可改文字、图标、色块和位置，保存/恢复为 `LabDesign` JSON。四个车型使用同一种前侧三分之四视角公式。
+页面创建 `WebGLRenderer`，调用 `bakeWrapAttributes` 所在的 `VehicleWrapEditor`，并用 `setDesign` 走现行贴画着色器。设计可改文字、图标、色块和位置，保存/恢复为 `LabDesign` JSON。查询参数 `x`、`y`、`scale`、`text` 走 `labDesignFromSearch`：与 `parseLabDesign` 同一范围（`x`、`y` 为 0–0.8，`scale` 为 0.4–1.6，文字 1–32 个码元）。超出的数字钳到边界，长文字截到 32，空文字和非数字保持默认。钳制后的设计可以被 `parseLabDesign` 读回。四个车型使用同一种前侧三分之四视角公式。
 
 ## 验收对照
 

@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { perimeterCoordinate } from '../lib/wrap-layout.ts';
 import {
   assertRightHanded,
   classifyMesh,
   designCoverage,
   defaultLabDesign,
+  labDesignFromSearch,
   parseLabDesign,
   placeDesign,
   serializeLabDesign,
@@ -199,6 +201,55 @@ void test('a vehicle query is applied once and the same design restores after th
     placeDesign(labProfile(chosen.vehicle), restored)[2]?.text,
     '路边小馆',
   );
+});
+
+void test('lab query params use the same bounds as parseLabDesign', () => {
+  const overflow = labDesignFromSearch(
+    new URLSearchParams(`x=2&y=-0.2&scale=9&text=${'字'.repeat(40)}`),
+  );
+  assert.equal(overflow.x, 0.8);
+  assert.equal(overflow.y, 0);
+  assert.equal(overflow.scale, 1.6);
+  assert.equal(overflow.text.length, 32);
+  assert.equal(overflow.text, '字'.repeat(32));
+  assert.deepEqual(parseLabDesign(serializeLabDesign(overflow)), overflow);
+
+  const floor = labDesignFromSearch(new URLSearchParams('x=0&y=0.8&scale=0.1'));
+  assert.equal(floor.x, 0);
+  assert.equal(floor.y, 0.8);
+  assert.equal(floor.scale, 0.4);
+  assert.deepEqual(parseLabDesign(serializeLabDesign(floor)), floor);
+
+  const kept = labDesignFromSearch(
+    new URLSearchParams('x=0.45&y=0.44&scale=0.81&text=MXGARAGE'),
+  );
+  assert.equal(kept.x, 0.45);
+  assert.equal(kept.y, 0.44);
+  assert.equal(kept.scale, 0.81);
+  assert.equal(kept.text, 'MXGARAGE');
+  assert.equal(kept.icon, defaultLabDesign().icon);
+  assert.equal(kept.swatch, defaultLabDesign().swatch);
+
+  const edges = labDesignFromSearch(new URLSearchParams('x=0.8&y=0&scale=1.6&text=A'));
+  assert.equal(edges.x, 0.8);
+  assert.equal(edges.y, 0);
+  assert.equal(edges.scale, 1.6);
+  assert.equal(edges.text, 'A');
+
+  const ignored = labDesignFromSearch(new URLSearchParams('x=nope&y=&scale=Infinity&text='));
+  assert.deepEqual(ignored, defaultLabDesign());
+
+  const onlyX = labDesignFromSearch(new URLSearchParams('x=0.2'));
+  assert.equal(onlyX.x, 0.2);
+  assert.equal(onlyX.y, defaultLabDesign().y);
+  assert.equal(onlyX.scale, defaultLabDesign().scale);
+  assert.equal(onlyX.text, defaultLabDesign().text);
+});
+
+void test('model-lab applies query params through labDesignFromSearch', () => {
+  const source = fs.readFileSync('components/model-lab/model-lab-studio.tsx', 'utf8');
+  assert.match(source, /labDesignFromSearch\(/);
+  assert.doesNotMatch(source, /params\.get\('text'\)/);
 });
 
 void test('fitVehicleView keeps the whole body inside the frame and slightly small', () => {

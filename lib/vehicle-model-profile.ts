@@ -103,7 +103,10 @@ export type PanelFeedback = {
   panelId: string | null;
   status: FeedbackStatus;
   reason: string;
-  /** Set by the bake path. Rejected meshes must not be shown as applied. */
+  /**
+   * Set by the bake path. A substantive rejection must not be shown as applied.
+   * `full` still applies when the only refused triangles are zero-area degenerates.
+   */
   coverage?: BakeCoverage;
 };
 export type LabIcon = 'cup' | 'runner' | 'badge';
@@ -359,8 +362,52 @@ export function placeDesign(
   }));
 }
 
+const LAB_X_MIN = 0;
+const LAB_X_MAX = 0.8;
+const LAB_Y_MIN = 0;
+const LAB_Y_MAX = 0.8;
+const LAB_SCALE_MIN = 0.4;
+const LAB_SCALE_MAX = 1.6;
+const LAB_TEXT_MIN = 1;
+const LAB_TEXT_MAX = 32;
+
+const clampLabNumber = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
 export function serializeLabDesign(design: LabDesign): string {
   return JSON.stringify(design);
+}
+
+/**
+ * /model-lab query overrides. Numbers outside the parseLabDesign range clamp
+ * to that range. Empty text and non-finite numbers stay on the default.
+ * Text longer than 32 code units is cut to 32. The result can be saved.
+ */
+export function labDesignFromSearch(params: { get(name: string): string | null }): LabDesign {
+  const base = defaultLabDesign();
+  const num = (key: string) => {
+    const raw = params.get(key);
+    if (raw == null || raw === '') return undefined;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : undefined;
+  };
+  const x = num('x');
+  const y = num('y');
+  const scale = num('scale');
+  const rawText = params.get('text');
+  const text =
+    rawText == null || rawText.length < LAB_TEXT_MIN
+      ? undefined
+      : rawText.slice(0, LAB_TEXT_MAX);
+  return {
+    ...base,
+    ...(x != null ? { x: clampLabNumber(x, LAB_X_MIN, LAB_X_MAX) } : {}),
+    ...(y != null ? { y: clampLabNumber(y, LAB_Y_MIN, LAB_Y_MAX) } : {}),
+    ...(scale != null
+      ? { scale: clampLabNumber(scale, LAB_SCALE_MIN, LAB_SCALE_MAX) }
+      : {}),
+    ...(text != null ? { text } : {}),
+  };
 }
 
 export function parseLabDesign(raw: string): LabDesign {
@@ -377,7 +424,7 @@ export function parseLabDesign(raw: string): LabDesign {
   const text = record.text;
   const numbers = [record.x, record.y, record.scale];
   if (record.version !== 1) throw new Error('设计版本无法读取');
-  if (typeof text !== 'string' || text.length < 1 || text.length > 32)
+  if (typeof text !== 'string' || text.length < LAB_TEXT_MIN || text.length > LAB_TEXT_MAX)
     throw new Error('文字需要 1 到 32 个字符');
   if (icon !== 'cup' && icon !== 'runner' && icon !== 'badge')
     throw new Error('图标不在可用集合里');
@@ -386,7 +433,14 @@ export function parseLabDesign(raw: string): LabDesign {
   if (!numbers.every((item) => typeof item === 'number' && Number.isFinite(item)))
     throw new Error('位置或缩放无法读取');
   const [x, y, scale] = numbers as number[];
-  if (x < 0 || x > 0.8 || y < 0 || y > 0.8 || scale < 0.4 || scale > 1.6)
+  if (
+    x < LAB_X_MIN ||
+    x > LAB_X_MAX ||
+    y < LAB_Y_MIN ||
+    y > LAB_Y_MAX ||
+    scale < LAB_SCALE_MIN ||
+    scale > LAB_SCALE_MAX
+  )
     throw new Error('位置或缩放超出可恢复范围');
   return { version: 1, text, icon, swatch, x, y, scale };
 }

@@ -18,6 +18,7 @@ import {
 import {
   defaultLabDesign,
   envelopeBody,
+  labDesignFromSearch,
   labFeedbackStatus,
   parseLabDesign,
   serializeLabDesign,
@@ -79,24 +80,8 @@ export default function ModelLabStudio() {
     if (!designInit.current) {
       designInit.current = true;
       const params = new URLSearchParams(window.location.search);
-      const num = (key: string) => {
-        const raw = params.get(key);
-        if (raw == null || raw === '') return undefined;
-        const value = Number(raw);
-        return Number.isFinite(value) ? value : undefined;
-      };
-      const x = num('x');
-      const y = num('y');
-      const scale = num('scale');
-      const text = params.get('text');
-      if (x != null || y != null || scale != null || text) {
-        const next = {
-          ...defaultLabDesign(),
-          ...(x != null ? { x } : {}),
-          ...(y != null ? { y } : {}),
-          ...(scale != null ? { scale } : {}),
-          ...(text ? { text } : {}),
-        };
+      if (params.has('x') || params.has('y') || params.has('scale') || params.has('text')) {
+        const next = labDesignFromSearch(params);
         designRef.current = next;
         queueMicrotask(() => setDesign(next));
       }
