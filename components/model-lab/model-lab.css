@@ -1,0 +1,157 @@
+.model-lab {
+  --ink: #1f2329;
+  --muted: #646a73;
+  --line: #e8e8e8;
+  min-height: 100dvh;
+  background: #f5f6f7;
+  color: var(--ink);
+  font-family:
+    Inter, 'SF Pro Text', system-ui, -apple-system, 'PingFang SC', sans-serif;
+  letter-spacing: -0.006em;
+}
+.model-lab-bar {
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--line);
+}
+.model-lab-mark {
+  font-size: 20px;
+  letter-spacing: -0.8px;
+}
+.model-lab-editor {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: #1f2329;
+  color: white;
+  border-radius: 100px;
+  font-size: 13px;
+}
+.model-lab-body {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) 1fr;
+  min-height: calc(100dvh - 72px);
+}
+.model-lab-side {
+  padding: 20px 18px 28px;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+.model-lab-side h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 620;
+}
+.model-lab-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.model-lab-choice,
+.model-lab-ghost {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 12px;
+  padding: 10px 12px;
+  text-align: left;
+}
+.model-lab-choice[aria-pressed='true'] {
+  background: #1f2329;
+  color: white;
+  border-color: #1f2329;
+}
+.model-lab-tests {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px 12px 12px;
+}
+.model-lab-tests summary {
+  cursor: pointer;
+  font-size: 14px;
+}
+.model-lab-tests p,
+.model-lab-diagnostics p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.model-lab-test-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.model-lab-field {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+.model-lab-field input,
+.model-lab-field select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px;
+}
+.model-lab-actions {
+  display: flex;
+  gap: 8px;
+}
+.model-lab-ghost {
+  padding: 8px 12px;
+}
+.model-lab-diagnostics {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.model-lab-diagnostics summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+.model-lab-diagnostics ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.model-lab-stage-wrap {
+  position: relative;
+  min-height: 640px;
+  margin: 12px 12px 12px 0;
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.model-lab-stage {
+  position: absolute;
+  inset: 0;
+}
+.model-lab-caption {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #fffffff2;
+  color: var(--ink);
+  font-size: 12px;
+}
+@media (max-width: 800px) {
+  .model-lab-body {
+    grid-template-columns: 1fr;
+  }
+  .model-lab-stage-wrap {
+    margin: 0 12px 12px;
+    min-height: 520px;
+  }
+}

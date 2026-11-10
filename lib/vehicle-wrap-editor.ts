@@ -3,6 +3,12 @@ import { svgDocument, type Project } from './free-wrap.ts';
 import { findFrontWrapTransitions } from './wrap-eligibility.ts';
 import { PALETTE_PARTITION, type VehiclePalette } from './vehicle-palettes.ts';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { bakeWrapAttributes } from './vehicle-wrap-adapter.ts';
+import {
+  envelopeBody,
+  type PanelFeedback,
+  type VehicleModelProfile,
+} from './vehicle-model-profile.ts';
 import {
   circumference,
   constrainDecal,
@@ -102,6 +108,7 @@ export class VehicleWrapEditor {
   } | null = null;
   /** Closed-pose chart span. Later image changes must not remeasure a posed door. */
   private entryDoorSpan: EntryDoorSpan | null = null;
+  private profileFeedback: PanelFeedback[] = [];
   private entryDoorClear = false;
   private entryAdjusted = false;
   private uniforms: { [key: string]: { value: unknown } };
@@ -111,6 +118,8 @@ export class VehicleWrapEditor {
     controls: OrbitControls;
     host: HTMLElement;
     body: WrapBody;
+    /** Optional model profile. Absent means the current vehicle chart. */
+    profile?: VehicleModelProfile;
     reveal: { value: number };
     onChange: (state: WrapEditState) => void;
     takeCamera: () => void;
@@ -120,7 +129,7 @@ export class VehicleWrapEditor {
     this.controls = options.controls;
     this.host = options.host;
     this.canvas = this.controls.domElement as HTMLCanvasElement;
-    this.body = options.body;
+    this.body = options.profile ? envelopeBody(options.profile) : options.body;
     this.change = options.onChange;
     this.takeCamera = options.takeCamera;
     this.placements = this.defaults();
@@ -159,58 +168,20 @@ export class VehicleWrapEditor {
     this.root.traverse((o) => {
       if (o instanceof THREE.Mesh) meshes.push(o);
     });
-    const transitions = findFrontWrapTransitions(meshes);
-    const bounds = new THREE.Box3();
-    for (const mesh of meshes)
-      if (mesh.name.startsWith('RV_Static_Wrap_'))
-        bounds.expandByObject(mesh, true);
-    if (!bounds.isEmpty())
-      this.body = { ...this.body, centerZ: (bounds.min.z + bounds.max.z) / 2 };
-    this.cacheEntryDoor(meshes);
     const materials = new Set<THREE.MeshStandardMaterial>();
-    for (const o of meshes) {
-      const wrap = [o.material].flat().every((m) => m.name.startsWith('Wrap_'));
-      const mask = transitions.get(o);
-      if (!wrap && !mask?.some(Boolean)) continue;
-      if (!wrap)
-        o.material = Array.isArray(o.material)
-          ? o.material.map((m) => m.clone())
-          : o.material.clone();
-      this.surfaces.push(o);
-      if (o.geometry.index) {
-        this.replaced.push(o.geometry);
-        o.geometry = o.geometry.toNonIndexed();
-      }
-      const position = o.geometry.getAttribute('position'),
-        coords = new Float32Array(position.count * 2);
-      const world = new THREE.Vector3();
-      for (let i = 0; i < position.count; i++) {
-        world.fromBufferAttribute(position, i).applyMatrix4(o.matrixWorld);
-        coords[i * 2] = perimeterCoordinate(world.x, world.z, this.body);
-        coords[i * 2 + 1] = world.y;
-      }
-      // Lift seam-crossing triangles into one local period before interpolation.
-      const period = circumference(this.body);
-      for (let i = 0; i < position.count; i += 3) {
-        const ss = [coords[i * 2], coords[(i + 1) * 2], coords[(i + 2) * 2]];
-        if (Math.max(...ss) - Math.min(...ss) > period / 2)
-          for (let j = 0; j < 3; j++)
-            if (coords[(i + j) * 2] < period / 2) coords[(i + j) * 2] += period;
-      }
-      o.geometry.setAttribute(
-        'aWrapCoord',
-        new THREE.BufferAttribute(coords, 2),
-      );
-      const eligibility = Float32Array.from(
-        { length: position.count },
-        (_, i) => (wrap ? 1 : mask![Math.floor(i / 3)]),
-      );
-      o.geometry.setAttribute(
-        'aWrapEligible',
-        new THREE.BufferAttribute(eligibility, 1),
-      );
-      for (const m of [o.material].flat())
-        if (m instanceof THREE.MeshStandardMaterial) materials.add(m);
+    if (options.profile) {
+      this.cacheEntryDoor(meshes);
+      this.bindProfile(meshes, options.profile, materials);
+    } else {
+      const transitions = findFrontWrapTransitions(meshes);
+      const bounds = new THREE.Box3();
+      for (const mesh of meshes)
+        if (mesh.name.startsWith('RV_Static_Wrap_'))
+          bounds.expandByObject(mesh, true);
+      if (!bounds.isEmpty())
+        this.body = { ...this.body, centerZ: (bounds.min.z + bounds.max.z) / 2 };
+      this.cacheEntryDoor(meshes);
+      this.bindLegacySurfaces(meshes, transitions, materials);
     }
     for (const material of materials) {
       material.onBeforeCompile = (shader) => {
@@ -706,6 +677,76 @@ export class VehicleWrapEditor {
   private noteEntryEdit(active: number, before: DecalPlacement) {
     if (active === 0 && !this.sameDecal(this.placements[0], before))
       this.entryAdjusted = true;
+  }
+  getProfileFeedback(): PanelFeedback[] {
+    return this.profileFeedback.map((item) => ({ ...item }));
+  }
+  private bindProfile(
+    meshes: THREE.Mesh[],
+    profile: VehicleModelProfile,
+    materials: Set<THREE.MeshStandardMaterial>,
+  ) {
+    this.profileFeedback = [];
+    for (const mesh of meshes) {
+      const baked = bakeWrapAttributes(mesh, profile);
+      this.profileFeedback.push(baked.feedback);
+      if (!baked.eligible) continue;
+      if (baked.replaced) this.replaced.push(baked.replaced);
+      this.surfaces.push(mesh);
+      for (const material of [mesh.material].flat())
+        if (material instanceof THREE.MeshStandardMaterial) materials.add(material);
+    }
+  }
+  /** Current-vehicle chart. Kept as its own path so a profile cannot change it. */
+  private bindLegacySurfaces(
+    meshes: THREE.Mesh[],
+    transitions: Map<THREE.Mesh, Uint8Array>,
+    materials: Set<THREE.MeshStandardMaterial>,
+  ) {
+    for (const o of meshes) {
+      const wrap = [o.material].flat().every((m) => m.name.startsWith('Wrap_'));
+      const mask = transitions.get(o);
+      if (!wrap && !mask?.some(Boolean)) continue;
+      if (!wrap)
+        o.material = Array.isArray(o.material)
+          ? o.material.map((m) => m.clone())
+          : o.material.clone();
+      this.surfaces.push(o);
+      if (o.geometry.index) {
+        this.replaced.push(o.geometry);
+        o.geometry = o.geometry.toNonIndexed();
+      }
+      const position = o.geometry.getAttribute('position'),
+        coords = new Float32Array(position.count * 2);
+      const world = new THREE.Vector3();
+      for (let i = 0; i < position.count; i++) {
+        world.fromBufferAttribute(position, i).applyMatrix4(o.matrixWorld);
+        coords[i * 2] = perimeterCoordinate(world.x, world.z, this.body);
+        coords[i * 2 + 1] = world.y;
+      }
+      // Lift seam-crossing triangles into one local period before interpolation.
+      const period = circumference(this.body);
+      for (let i = 0; i < position.count; i += 3) {
+        const ss = [coords[i * 2], coords[(i + 1) * 2], coords[(i + 2) * 2]];
+        if (Math.max(...ss) - Math.min(...ss) > period / 2)
+          for (let j = 0; j < 3; j++)
+            if (coords[(i + j) * 2] < period / 2) coords[(i + j) * 2] += period;
+      }
+      o.geometry.setAttribute(
+        'aWrapCoord',
+        new THREE.BufferAttribute(coords, 2),
+      );
+      const eligibility = Float32Array.from(
+        { length: position.count },
+        (_, i) => (wrap ? 1 : mask![Math.floor(i / 3)]),
+      );
+      o.geometry.setAttribute(
+        'aWrapEligible',
+        new THREE.BufferAttribute(eligibility, 1),
+      );
+      for (const m of [o.material].flat())
+        if (m instanceof THREE.MeshStandardMaterial) materials.add(m);
+    }
   }
   private cacheEntryDoor(meshes: THREE.Mesh[]) {
     const bounds = new THREE.Box3();
