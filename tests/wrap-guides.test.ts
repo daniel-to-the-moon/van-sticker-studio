@@ -1,44 +1,93 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import crypto from 'node:crypto';
-import rasterizer from 'sharp';
-const sharp = rasterizer as (input: Buffer) => {
-  removeAlpha: () => {
-    raw: () => {
-      toBuffer: (options: {
-        resolveWithObject: true;
-      }) => Promise<{
-        data: Buffer;
-        info: { width: number; channels: number };
-      }>;
-    };
-  };
-};
+import fs from 'node:fs';
+import test from 'node:test';
+import sharp from 'sharp';
+import { Box3, Vector3 } from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import {
+  createSideProjection,
+  liftSideChartTriangle,
+  projectSidePoint,
+} from '../lib/wrap-side-projection.ts';
+
 const guides = JSON.parse(fs.readFileSync('lib/wrap-guides.json', 'utf8'));
-void test('side guides belong to the same unchanged production model', () => {
-  assert.equal(
-    guides.sha256,
-    crypto
-      .createHash('sha256')
-      .update(fs.readFileSync('public/model/mxgarage-rv.glb'))
-      .digest('hex'),
-  );
-});
-void test('window and entrance-door glass remain outside the generated paint mask', async () => {
-  const { data, info } = await sharp(
-    Buffer.from(guides.entry.mask.split(',')[1], 'base64'),
-  )
-    .removeAlpha()
+const metadata = JSON.parse(
+  fs.readFileSync('public/model/motion_metadata.json', 'utf8'),
+);
+const glb = fs.readFileSync('public/model/mxgarage-rv.glb');
+const body = {
+  xMin: metadata.wrap.xMin,
+  length: metadata.wrap.xSpan,
+  height: metadata.wrap.zSpan,
+};
+const frame = createSideProjection(body);
+const sides = ['entry', 'driver'] as const;
+
+function decode(uri: string) {
+  return sharp(Buffer.from(uri.split(',')[1], 'base64'))
+    .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
-  for (const [x, y] of [
-    [915, 125.2],
-    [727.8, 125.2],
-    [567.5, 173.2],
-  ]) {
-    const at =
-      (Math.round(y * 2) * info.width + Math.round(x * 2)) * info.channels;
-    assert.ok(data[at] < 10, `glass ${x},${y} must stay masked`);
+}
+
+type Raster = Awaited<ReturnType<typeof decode>>;
+function pixel(raster: Raster, x: number, y: number) {
+  const { width, height, channels } = raster.info;
+  const offset = (Math.floor(y * height) * width + Math.floor(x * width)) * channels;
+  return raster.data.subarray(offset, offset + channels);
+}
+
+void test('side guides belong to the same unchanged production model', () => {
+  assert.equal(guides.sha256, crypto.createHash('sha256').update(glb).digest('hex'));
+  assert.equal(guides.aspect, body.length / body.height);
+});
+
+void test('both actual R13 side silhouettes have transparent margin on all four edges', async () => {
+  for (const side of sides) {
+    const { data, info } = await decode(guides[side].image);
+    const margin = 12;
+    for (let y = 0; y < info.height; y++)
+      for (let x = 0; x < info.width; x++)
+        if (x < margin || y < margin || x >= info.width - margin || y >= info.height - margin)
+          assert.equal(data[(y * info.width + x) * info.channels + 3], 0, side + ' has silhouette pixels in the frame margin');
   }
+});
+
+void test('closed-pose window and entrance-door glass align with the exclusion mask on both sides', async () => {
+  const { scene } = await new GLTFLoader().parseAsync(
+    glb.buffer.slice(glb.byteOffset, glb.byteOffset + glb.byteLength),
+    '',
+  );
+  scene.updateMatrixWorld(true);
+  const glazing = {
+    entry: ['EntryDoor', 'Window_1', 'Window_2', 'Window_6'],
+    driver: ['Window_3', 'Window_4', 'Window_5'],
+  };
+  for (const side of sides) {
+    const image = await decode(guides[side].image);
+    const mask = await decode(guides[side].mask);
+    for (const name of glazing[side]) {
+      const mesh = scene.getObjectByName('RV_WebRig_' + name + '_Glass');
+      assert.ok(mesh, name);
+      const center = new Box3().setFromObject(mesh, true).getCenter(new Vector3());
+      const { x, y } = projectSidePoint(frame, center.x, center.y);
+      const color = pixel(image, x, y);
+      assert.equal(color[3], 255, name + ' is visible in the guide');
+      assert.ok(color[2] > color[0], name + ' uses the glass color');
+      assert.ok(pixel(mask, x, y)[0] < 10, name + ' must stay unpainted');
+    }
+    const hull = projectSidePoint(frame, 1.4, 1.2);
+    assert.ok(pixel(mask, hull.x, hull.y)[0] > 245, side + ' hull must accept film');
+  }
+});
+
+void test('the R13 projection preserves physical proportions and chart seam lifting', () => {
+  const topNose = projectSidePoint(frame, body.xMin, body.height);
+  const rearGround = projectSidePoint(frame, body.xMin + body.length, 0);
+  assert.ok(topNose.x > 0 && topNose.x < rearGround.x && rearGround.x < 1);
+  assert.ok(topNose.y > 0 && topNose.y < rearGround.y && rearGround.y < 1);
+  assert.ok(Math.abs(frame.width / frame.height - guides.aspect) < 1e-10);
+  assert.deepEqual(liftSideChartTriangle([1, 15, 14], 16), [17, 15, 14]);
+  assert.deepEqual(liftSideChartTriangle([4, 5, 6], 16), [4, 5, 6]);
 });
