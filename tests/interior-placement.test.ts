@@ -263,3 +263,32 @@ void test('valid with multiple existing fixtures and clearances', () => {
   const result = validateFixturePlacement(candidate, envelope, existing, clearances);
   assert.strictEqual(result.valid, true);
 });
+
+void test('rotation changes containment and collisions', () => {
+  const nearRight: Fixture = { x: 4300, y: 100, width: 1500, height: 600, rotation: 0 };
+  assert.deepEqual(validateFixturePlacement(nearRight, envelope, [], []), {
+    valid: false, reason: 'outside_envelope',
+  });
+  assert.deepEqual(validateFixturePlacement({ ...nearRight, rotation: 90 }, envelope, [], []), {
+    valid: true,
+  });
+
+  const nearBottom = { ...nearRight, x: 100, y: 1000 };
+  assert.deepEqual(validateFixturePlacement(nearBottom, envelope, [], []), { valid: true });
+  assert.deepEqual(validateFixturePlacement({ ...nearBottom, rotation: 90 }, envelope, [], []), {
+    valid: false, reason: 'outside_envelope',
+  });
+
+  const narrow: Fixture = { x: 500, y: 500, width: 200, height: 800, rotation: 0 };
+  const adjacent: Fixture = { x: 1000, y: 500, width: 200, height: 200, rotation: 0 };
+  assert.deepEqual(validateFixturePlacement(narrow, envelope, [adjacent], []), { valid: true });
+  assert.deepEqual(validateFixturePlacement({ ...narrow, rotation: 90 }, envelope, [adjacent], []), {
+    valid: false, reason: 'collision_with_fixture',
+  });
+  assert.deepEqual(validateFixturePlacement(adjacent, envelope, [{ ...narrow, rotation: 90 }], []), {
+    valid: false, reason: 'collision_with_fixture',
+  });
+  assert.deepEqual(validateFixturePlacement({ ...narrow, rotation: 90 }, envelope, [], [adjacent]), {
+    valid: false, reason: 'collision_with_clearance',
+  });
+});

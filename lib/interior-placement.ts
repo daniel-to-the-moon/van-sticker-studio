@@ -20,6 +20,7 @@ export interface Envelope {
 }
 
 export interface Fixture extends Rectangle {
+  /** x and y locate the top-left corner of the rotated footprint. */
   rotation: 0 | 90;
 }
 
