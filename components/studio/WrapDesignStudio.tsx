@@ -34,12 +34,24 @@ import {
   Minus,
 } from 'lucide-react';
 import VehicleScene, { type VehicleHandle } from './VehicleScene';
+import FirstRunShell, {
+  isChassisId,
+  isDrawingFailure,
+  projectMirrored,
+  setMarkColor,
+  setMarkIcon,
+  setShopName,
+  shopNameOf,
+  switchChassis,
+  starterProject,
+  type ChassisId,
+  type FirstRunState,
+} from './FirstRunShell';
 import {
   addLayer,
   artMarkup,
   commit,
   editLayer,
-  emptyProject,
   history,
   newLayer,
   parseProject,
@@ -113,8 +125,22 @@ function IconButton({
   );
 }
 
-export default function WrapDesignStudio() {
-  const [h, setH] = useState<History>(() => history(emptyProject()));
+export default function WrapDesignStudio({
+  initialAdvanced = false,
+  initialChassis = 'current-glb',
+  initialProject,
+}: {
+  initialAdvanced?: boolean;
+  initialChassis?: ChassisId;
+  initialProject?: Project;
+} = {}) {
+  const [h, setH] = useState<History>(() =>
+    history(initialProject ?? starterProject()),
+  );
+  const [advanced, setAdvanced] = useState(initialAdvanced);
+  const [chassisId, setChassisId] = useState<ChassisId>(() =>
+    isChassisId(initialChassis) ? initialChassis : 'current-glb',
+  );
   const [hydrated, setHydrated] = useState(false),
     [saveStatus, setSaveStatus] = useState<DraftStatus>('loading');
   const draft = useRef<DraftPersistence | null>(null);
@@ -143,11 +169,28 @@ export default function WrapDesignStudio() {
     center: { x: number; y: number };
     pan: Point;
   } | null>(null);
+  const pinchObject = useRef<{
+    distance: number;
+    art: Art;
+    layer: string;
+  } | null>(null);
   const multi = useRef(false);
   const mousePan = useRef<{ x: number; y: number; pan: Point } | null>(null);
   const project = preview ?? h.present,
     layer = project.layers.find((l) => l.id === selected),
     art = layer?.[side];
+  const showPreview = !advanced || mode === 'preview';
+  const showCanvas = !advanced || mode === 'edit';
+  const shellState = (): FirstRunState => ({
+    advanced,
+    mirror: projectMirrored(h.present),
+    chassisId,
+    project: h.present,
+  });
+  function applyShell(next: FirstRunState) {
+    if (next.project !== h.present) save(next.project);
+    if (next.chassisId !== chassisId) setChassisId(next.chassisId);
+  }
   useEffect(() => {
     let active = true;
     const persistence = new DraftPersistence(
@@ -204,6 +247,7 @@ export default function WrapDesignStudio() {
   function cancel() {
     gesture.current = null;
     mousePan.current = null;
+    pinchObject.current = null;
     setPreview(null);
     setLine([]);
   }
@@ -211,6 +255,23 @@ export default function WrapDesignStudio() {
     cancel();
     setSide(next);
     setTool('select');
+  }
+  function lookOtherSide() {
+    const next: Side = side === 'entry' ? 'driver' : 'entry';
+    cancel();
+    setSide(next);
+    scene.current?.setView(next);
+  }
+  function toggleAdvancedOpen() {
+    cancel();
+    if (advanced) {
+      setTool('select');
+      setMessage((current) => (isDrawingFailure(current) ? '' : current));
+      setAdvanced(false);
+      return;
+    }
+    setMode('edit');
+    setAdvanced(true);
   }
   function chooseTool(next: Tool) {
     cancel();
@@ -252,15 +313,29 @@ export default function WrapDesignStudio() {
     e.currentTarget.setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.current.size > 1) {
+      const selectedArt = h.present.layers.find((l) => l.id === selected)?.[
+        side
+      ];
       cancel();
       multi.current = true;
       const [a, b] = [...pointers.current.values()];
-      pinch.current = {
-        distance: Math.hypot(a.x - b.x, a.y - b.y),
-        zoom,
-        center: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
-        pan,
-      };
+      const distance = Math.hypot(a.x - b.x, a.y - b.y);
+      if (tool === 'select' && selected && selectedArt && !selectedArt.locked) {
+        pinch.current = null;
+        pinchObject.current = {
+          distance,
+          art: selectedArt,
+          layer: selected,
+        };
+      } else {
+        pinchObject.current = null;
+        pinch.current = {
+          distance,
+          zoom,
+          center: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+          pan,
+        };
+      }
       return;
     }
     multi.current = false;
@@ -271,26 +346,32 @@ export default function WrapDesignStudio() {
     }
     const target = e.target as Element,
       id = target.closest('[data-layer]')?.getAttribute('data-layer') ?? '';
-    const node = target.closest('[data-node]')?.getAttribute('data-node');
+    const nodeAttr = target.closest('[data-node]')?.getAttribute('data-node');
+    const nodeIndex =
+      nodeAttr === undefined || nodeAttr === null ? null : Number(nodeAttr);
     const value = h.present.layers.find((l) => l.id === id)?.[side] ?? null;
-    if (tool === 'select') {
+    const edgeDrag =
+      !advanced &&
+      nodeIndex !== null &&
+      !!art &&
+      art.kind === 'region' &&
+      art.rotation === 0 &&
+      !art.locked;
+    if (tool === 'select' && !edgeDrag) {
       setSelected(id);
       if (!value || value.locked) return;
     }
-    if (
-      tool === 'nodes' &&
-      (node === undefined || node === null || !art || art.locked)
-    )
-      return;
+    if (tool === 'nodes' && (nodeIndex === null || !art || art.locked)) return;
     const start = point(e);
+    const nodeMode = tool === 'nodes' || edgeDrag;
     gesture.current = {
       id: e.pointerId,
       start,
       base: h.present,
-      art: tool === 'nodes' ? (art ?? null) : value,
-      layer: tool === 'nodes' ? selected : id,
+      art: nodeMode ? (art ?? null) : value,
+      layer: nodeMode ? selected : id,
       points: [start],
-      node: node ? Number(node) : node === '0' ? 0 : null,
+      node: nodeIndex,
     };
     if (tool === 'region' || tool === 'stroke') setLine([start]);
   }
@@ -298,8 +379,20 @@ export default function WrapDesignStudio() {
     if (!pointers.current.has(e.pointerId)) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (multi.current) {
-      const [a, b] = [...pointers.current.values()],
-        start = pinch.current;
+      const [a, b] = [...pointers.current.values()];
+      const object = pinchObject.current;
+      if (a && b && object) {
+        const ratio =
+          Math.hypot(a.x - b.x, a.y - b.y) / Math.max(1, object.distance);
+        setPreview(
+          editLayer(h.present, object.layer, side, {
+            w: clamp(object.art.w * ratio, 0.02, 1.5),
+            h: clamp(object.art.h * ratio, 0.02, 1.5),
+          }),
+        );
+        return;
+      }
+      const start = pinch.current;
       if (a && b && start) {
         setZoom(
           clamp(
@@ -351,14 +444,18 @@ export default function WrapDesignStudio() {
     const g = gesture.current;
     if (!g || g.id !== e.pointerId) return;
     const p = point(e);
-    if (tool === 'select' && g.art)
+    const draggingNode =
+      g.node !== null &&
+      !!g.art &&
+      (tool === 'nodes' || (!advanced && g.art.kind === 'region'));
+    if (tool === 'select' && g.art && !draggingNode)
       setPreview(
         editLayer(g.base, g.layer, side, {
           x: clamp(g.art.x + p.x - g.start.x, -0.9, 1),
           y: clamp(g.art.y + p.y - g.start.y, -0.9, 1),
         }),
       );
-    if (tool === 'nodes' && g.art && g.node !== null) {
+    if (draggingNode && g.art && g.node !== null) {
       const points = g.art.points.map((q, i) =>
         i === g.node
           ? {
@@ -387,6 +484,10 @@ export default function WrapDesignStudio() {
       if (!pointers.current.size) {
         multi.current = false;
         pinch.current = null;
+        if (pinchObject.current) {
+          pinchObject.current = null;
+          if (preview) save(preview);
+        }
       }
       return;
     }
@@ -442,7 +543,7 @@ export default function WrapDesignStudio() {
     }
   }
   const handleKey = useEffectEvent((e: KeyboardEvent) => {
-    if (mode !== 'edit' || e.defaultPrevented) return;
+    if (!showCanvas || e.defaultPrevented) return;
     if (!(e.target instanceof Element) || !e.target.closest('.wrap-workspace'))
       return;
 
@@ -490,9 +591,13 @@ export default function WrapDesignStudio() {
   }, []);
   return (
     <div
-      className="wrap-workspace"
+      className={`wrap-workspace ${advanced ? 'is-advanced' : 'is-first-run'}`}
       role="application"
       aria-label="车身贴画编辑器"
+      data-first-run={advanced ? 'advanced' : 'simple'}
+      data-mirror={projectMirrored(project) ? 'on' : 'off'}
+      data-layers={project.layers.length}
+      data-chassis={chassisId}
     >
       <header className="wrap-header">
         <Link href="/" aria-label="返回首页">
@@ -525,20 +630,31 @@ export default function WrapDesignStudio() {
               disabled={!h.future.length}
             />
           }
+          {advanced && (
+            <button
+              onClick={() => {
+                cancel();
+                setMode(mode === 'edit' ? 'preview' : 'edit');
+              }}
+              className="wrap-primary"
+            >
+              <Box size={17} />
+              {mode === 'edit' ? '3D 预览' : '返回编辑'}
+            </button>
+          )}
           <button
-            onClick={() => {
-              cancel();
-              setMode(mode === 'edit' ? 'preview' : 'edit');
-            }}
-            className="wrap-primary"
+            type="button"
+            className="wrap-advanced-toggle"
+            aria-pressed={advanced}
+            onClick={toggleAdvancedOpen}
           >
-            <Box size={17} />
-            {mode === 'edit' ? '3D 预览' : '返回编辑'}
+            高级
           </button>
         </div>
       </header>
       <div className="wrap-layout">
-        <nav className="wrap-tools" aria-label="创作工具">
+        {advanced && (
+        <nav className="wrap-tools" id="wrap-advanced-tools" aria-label="创作工具">
           <button
             aria-pressed={tool === 'select'}
             onClick={() => chooseTool('select')}
@@ -598,8 +714,10 @@ export default function WrapDesignStudio() {
             <span>图层</span>
           </button>
         </nav>
+        )}
         <section className="wrap-stage">
           <div className="wrap-stagebar">
+            {advanced && (
             <div className="wrap-segment" aria-label="车身侧面">
               <button
                 aria-pressed={side === 'entry'}
@@ -614,6 +732,7 @@ export default function WrapDesignStudio() {
                 另一侧
               </button>
             </div>
+            )}
             <span className="wrap-save-state">
               {
                 {
@@ -638,7 +757,7 @@ export default function WrapDesignStudio() {
               )}
             </output>
           )}
-          {mode === 'edit' ? (
+          {showCanvas && (
             <div className="wrap-canvas-shell">
               <button
                 className="wrap-canvas-focus"
@@ -718,9 +837,11 @@ export default function WrapDesignStudio() {
                       transform={`rotate(${art.rotation} ${(art.x + art.w / 2) * 1000} ${(art.y + art.h / 2) * 400})`}
                     />
                   )}
-                  {tool === 'nodes' &&
+                  {(tool === 'nodes' ||
+                    (!advanced &&
+                      art?.kind === 'region' &&
+                      art.rotation === 0)) &&
                     art &&
-                    art.rotation === 0 &&
                     art.points.map((p, i) => (
                       <circle
                         key={i}
@@ -745,7 +866,7 @@ export default function WrapDesignStudio() {
                 </svg>
               </button>
               <div className="wrap-canvas-foot">
-                <span>侧面贴画展开图 · 门窗区域保留</span>
+                {advanced && <span>侧面贴画展开图 · 门窗区域保留</span>}
                 <div>
                   {
                     <IconButton
@@ -775,7 +896,8 @@ export default function WrapDesignStudio() {
                 </div>
               </div>
             </div>
-          ) : (
+          )}
+          {showPreview && (
             <div className="wrap-preview">
               <VehicleScene
                 ref={scene}
@@ -792,21 +914,40 @@ export default function WrapDesignStudio() {
                 onReady={() => scene.current?.setView(side)}
               />
               <div className="wrap-preview-views">
-                {[
-                  ['entry', '入口正侧面'],
-                  ['driver', '另一侧'],
-                  ['hero', '立体'],
-                  ['front', '正面'],
-                ].map(([id, label]) => (
-                  <button key={id} onClick={() => scene.current?.setView(id)}>
-                    {label}
-                  </button>
-                ))}
-                <button onClick={() => setParts({})}>关合部件</button>
+                {advanced ? (
+                  <>
+                    {[
+                      ['entry', '入口正侧面'],
+                      ['driver', '另一侧'],
+                      ['hero', '立体'],
+                      ['front', '正面'],
+                    ].map(([id, label]) => (
+                      <button
+                        key={id}
+                        onClick={() => scene.current?.setView(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    <button onClick={() => setParts({})}>关合部件</button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" onClick={lookOtherSide}>
+                      看另一侧
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => scene.current?.setView('hero')}
+                    >
+                      转转车子
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}
-          {message && (
+          {message && (advanced || !isDrawingFailure(message)) && (
             <output className="wrap-message">
               {message}
               <button aria-label="关闭提示" onClick={() => setMessage('')}>
@@ -816,6 +957,18 @@ export default function WrapDesignStudio() {
           )}
         </section>
         <aside className="wrap-inspector">
+          <FirstRunShell
+            shopName={shopNameOf(h.present)}
+            mirror={projectMirrored(h.present)}
+            chassisId={chassisId}
+            density={advanced ? 'compact' : 'full'}
+            onShopName={(name) => applyShell(setShopName(shellState(), name))}
+            onChassis={(id) => applyShell(switchChassis(shellState(), id))}
+            onIcon={(icon) => applyShell(setMarkIcon(shellState(), icon))}
+            onIconColor={(next) => applyShell(setMarkColor(shellState(), next))}
+          />
+          {advanced && (
+          <>
           <h1>{art ? layer!.name : '设计你的车身'}</h1>
           {(tool === 'region' || tool === 'stroke') && (
             <div className="wrap-section">
@@ -1181,6 +1334,8 @@ export default function WrapDesignStudio() {
               导出图案 SVG
             </button>
           </footer>
+          </>
+          )}
         </aside>
       </div>
     </div>
