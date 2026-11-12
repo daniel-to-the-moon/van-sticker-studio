@@ -2,6 +2,7 @@
 import {
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -59,6 +60,7 @@ import {
 } from '@/lib/free-wrap';
 import './wrap-design.css';
 import guides from '@/lib/wrap-guides.json';
+import { DraftPersistence, type DraftStatus } from '@/lib/draft-persistence';
 const STORE = 'mxgarage-free-wrap-v1';
 type Tool = 'select' | 'region' | 'stroke' | 'nodes' | 'pan';
 type Gesture = {
@@ -114,7 +116,8 @@ function IconButton({
 export default function WrapDesignStudio() {
   const [h, setH] = useState<History>(() => history(emptyProject()));
   const [hydrated, setHydrated] = useState(false),
-    [storageOK, setStorageOK] = useState(true);
+    [saveStatus, setSaveStatus] = useState<DraftStatus>('loading');
+  const draft = useRef<DraftPersistence | null>(null);
   const [side, setSide] = useState<Side>('entry'),
     [selected, setSelected] = useState('');
   const [tool, setTool] = useState<Tool>('select'),
@@ -146,37 +149,45 @@ export default function WrapDesignStudio() {
     layer = project.layers.find((l) => l.id === selected),
     art = layer?.[side];
   useEffect(() => {
+    let active = true;
+    const persistence = new DraftPersistence(
+      {
+        getItem: (key) => window.localStorage.getItem(key),
+        setItem: (key, value) => window.localStorage.setItem(key, value),
+      },
+      STORE,
+      {
+        onStatus: (status) => {
+          if (active) setSaveStatus(status);
+        },
+      },
+    );
+    draft.current = persistence;
+    const detach = persistence.attachLifecycle(
+      window,
+      document,
+      () => document.visibilityState === 'hidden',
+    );
     const timer = setTimeout(() => {
       try {
-        const saved = localStorage.getItem(STORE);
-        if (saved) setH(history(parseProject(saved)));
+        const saved = persistence.restore();
+        if (saved) setH(history(saved));
       } catch {
-        setStorageOK(false);
-        setMessage('原草稿未能恢复。可以导入备份；保存前不会覆盖原记录。');
+        setSaveStatus('blocked');
       }
       setHydrated(true);
     }, 0);
-    return () => clearTimeout(timer);
-  }, []);
-  useEffect(() => {
-    if (!hydrated || !storageOK) return;
-    const timer = setTimeout(() => {
-      try {
-        localStorage.setItem(STORE, JSON.stringify(h.present));
-      } catch {
-        setStorageOK(false);
-        setMessage('自动保存失败，请下载草稿保留进度');
-      }
-    }, 500);
     return () => {
+      active = false;
       clearTimeout(timer);
-      try {
-        localStorage.setItem(STORE, JSON.stringify(h.present));
-      } catch {
-        /* Download remains available. */
-      }
+      detach();
+      persistence.dispose();
+      if (draft.current === persistence) draft.current = null;
     };
-  }, [h.present, hydrated, storageOK]);
+  }, []);
+  useLayoutEffect(() => {
+    if (hydrated) draft.current?.schedule(h.present);
+  }, [h.present, hydrated]);
   function save(p: Project): boolean {
     try {
       parseProject(JSON.stringify(p));
@@ -420,7 +431,9 @@ export default function WrapDesignStudio() {
         insert('image', { src: data });
       } else {
         if (file.size > 8_000_000) throw new Error('草稿超过 8 MB');
-        save(parseProject(await file.text()));
+        const imported = parseProject(await file.text());
+        if (!save(imported)) return;
+        draft.current?.replace(imported);
         setSelected('');
         setMessage('已导入，可撤销恢复之前的设计');
       }
@@ -602,9 +615,29 @@ export default function WrapDesignStudio() {
               </button>
             </div>
             <span className="wrap-save-state">
-              {storageOK ? '本机自动保存' : '请下载备份'}
+              {
+                {
+                  loading: '正在恢复草稿',
+                  saved: '已保存到本机',
+                  pending: '正在保存…',
+                  error: '尚未保存',
+                  blocked: '原草稿受保护',
+                }[saveStatus]
+              }
             </span>
           </div>
+          {(saveStatus === 'error' || saveStatus === 'blocked') && (
+            <output className="wrap-message" aria-live="polite">
+              <span>
+                {saveStatus === 'blocked'
+                  ? '原草稿未能恢复，已保留原记录。请导入有效备份；当前编辑可下载保存。'
+                  : '尚未保存到本机。请重试，或下载草稿保留进度。'}
+              </span>
+              {saveStatus === 'error' && (
+                <button onClick={() => draft.current?.flush()}>重试保存</button>
+              )}
+            </output>
+          )}
           {mode === 'edit' ? (
             <div className="wrap-canvas-shell">
               <button
