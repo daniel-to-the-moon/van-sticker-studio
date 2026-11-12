@@ -72,6 +72,15 @@ import {
 } from '@/lib/free-wrap';
 import './wrap-design.css';
 import guides from '@/lib/wrap-guides.json';
+import {
+  SHEET,
+  addColorBlock,
+  deleteColorBlock,
+  moveVertex,
+  panelAt,
+  panelLocal,
+  pullEdge,
+} from './wrap-sheet';
 import { DraftPersistence, type DraftStatus } from '@/lib/draft-persistence';
 const STORE = 'mxgarage-free-wrap-v1';
 type Tool = 'select' | 'region' | 'stroke' | 'nodes' | 'pan';
@@ -83,6 +92,9 @@ type Gesture = {
   layer: string;
   points: Point[];
   node: number | null;
+  side: Side;
+  edge: number | null;
+  inserted: number | null;
 };
 const clamp = (v: number, min = 0, max = 1) => Math.max(min, Math.min(max, v));
 const freshId = () => crypto.randomUUID();
@@ -161,6 +173,7 @@ export default function WrapDesignStudio({
   const [parts, setParts] = useState<Record<string, boolean>>({});
   const board = useRef<SVGSVGElement>(null),
     scene = useRef<VehicleHandle>(null);
+  const hitSide = useRef<Side>('entry');
   const gesture = useRef<Gesture | null>(null),
     pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<{
@@ -298,14 +311,27 @@ export default function WrapDesignStudio({
       setMessage(e instanceof Error ? e.message : '添加失败');
     }
   }
-  function point(e: ReactPointerEvent<SVGSVGElement>): Point {
+  function sheetPointer(e: ReactPointerEvent<SVGSVGElement>): Point | null {
     const svg = board.current!,
       matrix = svg.getScreenCTM();
-    if (!matrix) return { x: 0, y: 0 };
+    if (!matrix) return null;
     const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(
       matrix.inverse(),
     );
-    return { x: clamp(p.x / 1000), y: clamp(p.y / 400) };
+    return { x: p.x, y: p.y };
+  }
+  function chartPoint(e: ReactPointerEvent<SVGSVGElement>, which: Side): Point {
+    const raw = sheetPointer(e);
+    const panel = SHEET.panels.find((item) => item.side === which);
+    if (!raw || !panel) return { x: 0, y: 0 };
+    const local = panelLocal(panel, raw.x, raw.y);
+    return { x: clamp(local.x), y: clamp(local.y) };
+  }
+  function point(e: ReactPointerEvent<SVGSVGElement>): Point {
+    const raw = sheetPointer(e);
+    const hit = raw ? panelAt(raw.x, raw.y) : null;
+    if (hit?.side) hitSide.current = hit.side;
+    return chartPoint(e, hit?.side ?? hitSide.current);
   }
   function onDown(e: ReactPointerEvent<SVGSVGElement>) {
     if (e.button !== 0 && e.button !== 1) return;
@@ -314,7 +340,7 @@ export default function WrapDesignStudio({
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.current.size > 1) {
       const selectedArt = h.present.layers.find((l) => l.id === selected)?.[
-        side
+        hitSide.current
       ];
       cancel();
       multi.current = true;
@@ -344,34 +370,43 @@ export default function WrapDesignStudio({
       mousePan.current = { x: e.clientX, y: e.clientY, pan };
       return;
     }
+    const start = point(e);
+    const editSide = hitSide.current;
+    setSide(editSide);
     const target = e.target as Element,
       id = target.closest('[data-layer]')?.getAttribute('data-layer') ?? '';
     const nodeAttr = target.closest('[data-node]')?.getAttribute('data-node');
+    const edgeAttr = target.closest('[data-edge]')?.getAttribute('data-edge');
     const nodeIndex =
       nodeAttr === undefined || nodeAttr === null ? null : Number(nodeAttr);
-    const value = h.present.layers.find((l) => l.id === id)?.[side] ?? null;
-    const edgeDrag =
-      !advanced &&
-      nodeIndex !== null &&
-      !!art &&
-      art.kind === 'region' &&
-      art.rotation === 0 &&
-      !art.locked;
-    if (tool === 'select' && !edgeDrag) {
+    const edgeIndex =
+      edgeAttr === undefined || edgeAttr === null ? null : Number(edgeAttr);
+    const value = h.present.layers.find((l) => l.id === id)?.[editSide] ?? null;
+    const live =
+      h.present.layers.find((l) => l.id === selected)?.[editSide] ?? null;
+    const shaping =
+      (nodeIndex !== null || edgeIndex !== null) &&
+      !!live &&
+      live.kind === 'region' &&
+      live.rotation === 0 &&
+      !live.locked;
+    if (tool === 'select' && !shaping) {
       setSelected(id);
       if (!value || value.locked) return;
     }
-    if (tool === 'nodes' && (nodeIndex === null || !art || art.locked)) return;
-    const start = point(e);
-    const nodeMode = tool === 'nodes' || edgeDrag;
+    if (tool === 'nodes' && (nodeIndex === null || !live || live.locked)) return;
+    const nodeMode = tool === 'nodes' || shaping;
     gesture.current = {
       id: e.pointerId,
       start,
       base: h.present,
-      art: nodeMode ? (art ?? null) : value,
+      art: nodeMode ? live : value,
       layer: nodeMode ? selected : id,
       points: [start],
       node: nodeIndex,
+      side: editSide,
+      edge: edgeIndex,
+      inserted: null,
     };
     if (tool === 'region' || tool === 'stroke') setLine([start]);
   }
@@ -385,7 +420,7 @@ export default function WrapDesignStudio({
         const ratio =
           Math.hypot(a.x - b.x, a.y - b.y) / Math.max(1, object.distance);
         setPreview(
-          editLayer(h.present, object.layer, side, {
+          editLayer(h.present, object.layer, hitSide.current, {
             w: clamp(object.art.w * ratio, 0.02, 1.5),
             h: clamp(object.art.h * ratio, 0.02, 1.5),
           }),
@@ -406,19 +441,19 @@ export default function WrapDesignStudio({
         setPan({
           x: clamp(
             start.pan.x -
-              (((a.x + b.x) / 2 - start.center.x) * 1000) /
+              (((a.x + b.x) / 2 - start.center.x) * SHEET.width) /
                 r.width /
                 start.zoom,
-            -500,
-            500,
+            -SHEET.width,
+            SHEET.width,
           ),
           y: clamp(
             start.pan.y -
-              (((a.y + b.y) / 2 - start.center.y) * 400) /
+              (((a.y + b.y) / 2 - start.center.y) * SHEET.height) /
                 r.height /
                 start.zoom,
-            -200,
-            200,
+            -SHEET.height,
+            SHEET.height,
           ),
         });
       }
@@ -429,33 +464,61 @@ export default function WrapDesignStudio({
       const r = board.current!.getBoundingClientRect();
       setPan({
         x: clamp(
-          drag.pan.x - ((e.clientX - drag.x) * 1000) / r.width / zoom,
-          -500,
-          500,
+          drag.pan.x - ((e.clientX - drag.x) * SHEET.width) / r.width / zoom,
+          -SHEET.width,
+          SHEET.width,
         ),
         y: clamp(
-          drag.pan.y - ((e.clientY - drag.y) * 400) / r.height / zoom,
-          -200,
-          200,
+          drag.pan.y - ((e.clientY - drag.y) * SHEET.height) / r.height / zoom,
+          -SHEET.height,
+          SHEET.height,
         ),
       });
       return;
     }
     const g = gesture.current;
     if (!g || g.id !== e.pointerId) return;
-    const p = point(e);
-    const draggingNode =
-      g.node !== null &&
+    const p = chartPoint(e, g.side);
+    const shapingRegion =
       !!g.art &&
-      (tool === 'nodes' || (!advanced && g.art.kind === 'region'));
-    if (tool === 'select' && g.art && !draggingNode)
+      g.art.kind === 'region' &&
+      (g.edge !== null || g.node !== null);
+    if (shapingRegion && g.art && g.edge !== null) {
+      if (g.inserted === null) {
+        const pulled = pullEdge(g.art, g.edge, p);
+        g.inserted = pulled.index;
+        g.art = { ...g.art, ...pulled.patch };
+      } else {
+        g.art = { ...g.art, ...moveVertex(g.art, g.inserted, p) };
+      }
       setPreview(
-        editLayer(g.base, g.layer, side, {
+        editLayer(g.base, g.layer, g.side, {
+          x: g.art.x,
+          y: g.art.y,
+          w: g.art.w,
+          h: g.art.h,
+          points: g.art.points,
+        }),
+      );
+    } else if (tool === 'select' && g.art && g.node === null && g.edge === null)
+      setPreview(
+        editLayer(g.base, g.layer, g.side, {
           x: clamp(g.art.x + p.x - g.start.x, -0.9, 1),
           y: clamp(g.art.y + p.y - g.start.y, -0.9, 1),
         }),
       );
-    if (draggingNode && g.art && g.node !== null) {
+    else if (g.art && g.node !== null && g.art.kind === 'region') {
+      g.art = { ...g.art, ...moveVertex(g.art, g.node, p) };
+      setPreview(
+        editLayer(g.base, g.layer, g.side, {
+          x: g.art.x,
+          y: g.art.y,
+          w: g.art.w,
+          h: g.art.h,
+          points: g.art.points,
+        }),
+      );
+    } else if (g.art && g.node !== null) {
       const points = g.art.points.map((q, i) =>
         i === g.node
           ? {
@@ -464,7 +527,7 @@ export default function WrapDesignStudio({
             }
           : q,
       );
-      setPreview(editLayer(g.base, g.layer, side, { points }));
+      setPreview(editLayer(g.base, g.layer, g.side, { points }));
     }
     if (tool === 'region' || tool === 'stroke') {
       if (
@@ -767,10 +830,12 @@ export default function WrapDesignStudio({
                 <svg
                   ref={board}
                   className="wrap-canvas"
-
-                  aria-label={`车身贴画画布：${labels[tool]}，车头在左`}
-                  preserveAspectRatio="none"
-                  viewBox={`${500 - 500 / zoom + pan.x} ${200 - 200 / zoom + pan.y} ${1000 / zoom} ${400 / zoom}`}
+                  style={{ aspectRatio: SHEET.aspect }}
+                  aria-label={`车身展开图：左、右、前、后、顶，${labels[tool]}`}
+                  data-sheet-views="left right front rear top"
+                  data-sheet-aspect={SHEET.aspect}
+                  preserveAspectRatio="xMidYMid meet"
+                  viewBox={`${SHEET.width / 2 - SHEET.width / 2 / zoom + pan.x} ${SHEET.height / 2 - SHEET.height / 2 / zoom + pan.y} ${SHEET.width / zoom} ${SHEET.height / zoom}`}
                   onPointerDown={onDown}
                   onPointerMove={onMove}
                   onPointerUp={onUp}
@@ -787,82 +852,127 @@ export default function WrapDesignStudio({
                   }}
                 >
                   <defs>
-                    <mask
-                      id="side-guide"
-                      maskUnits="userSpaceOnUse"
-                      x="0"
-                      y="0"
-                      width="1000"
-                      height="400"
-                    >
-                      <image
-                        href={guides[side].mask}
+                    {(['entry', 'driver'] as const).map((face) => (
+                      <mask
+                        key={face}
+                        id={`side-guide-${face}`}
+                        maskUnits="userSpaceOnUse"
+                        x="0"
+                        y="0"
                         width="1000"
                         height="400"
-                      />
-                    </mask>
-                  </defs>
-                  <image
-                    href={guides[side].image}
-                    width="1000"
-                    height="400"
-                    pointerEvents="none"
-                  />
-                  <g mask="url(#side-guide)">
-                    <rect width="1000" height="400" fill={project.background} />
-                    {project.layers.map(
-                      (l) =>
-                        l[side]?.visible && (
-                          <g
-                            key={l.id}
-                            data-layer={l.id}
-                            dangerouslySetInnerHTML={{
-                              __html: artMarkup(l[side]!),
-                            }}
-                          />
-                        ),
-                    )}
-                  </g>
-                  {art && art.visible && (
-                    <rect
-                      pointerEvents="none"
-                      x={art.x * 1000}
-                      y={art.y * 400}
-                      width={art.w * 1000}
-                      height={art.h * 400}
-                      fill="none"
-                      stroke="#286d48"
-                      strokeWidth={2 / zoom}
-                      strokeDasharray="5 4"
-                      transform={`rotate(${art.rotation} ${(art.x + art.w / 2) * 1000} ${(art.y + art.h / 2) * 400})`}
-                    />
-                  )}
-                  {(tool === 'nodes' ||
-                    (!advanced &&
-                      art?.kind === 'region' &&
-                      art.rotation === 0)) &&
-                    art &&
-                    art.points.map((p, i) => (
-                      <circle
-                        key={i}
-                        data-node={i}
-                        cx={(art.x + p.x * art.w) * 1000}
-                        cy={(art.y + p.y * art.h) * 400}
-                        r={9 / zoom}
-                        fill="white"
-                        stroke="#286d48"
-                        strokeWidth="2"
-                      />
+                      >
+                        <image href={guides[face].mask} width="1000" height="400" />
+                      </mask>
                     ))}
-                  {line.length > 0 && (
-                    <path
-                      d={pathData(line)}
-                      fill="none"
-                      stroke={color}
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                    />
-                  )}
+                  </defs>
+                  {SHEET.panels.map((panel) => (
+                    <g key={panel.id} data-sheet-view={panel.id}>
+                      <text
+                        x={panel.x}
+                        y={panel.y - 0.06}
+                        fontSize="0.22"
+                        fill="#646a73"
+                      >
+                        {panel.label}
+                      </text>
+                      <g
+                        transform={`translate(${panel.x} ${panel.y}) scale(${panel.w / 1000} ${panel.h / 400})`}
+                      >
+                        {panel.side ? (
+                          <>
+                            <image
+                              href={guides[panel.side].image}
+                              width="1000"
+                              height="400"
+                              pointerEvents="none"
+                            />
+                            <g mask={`url(#side-guide-${panel.side})`}>
+                              <rect
+                                width="1000"
+                                height="400"
+                                fill={project.background}
+                              />
+                              {project.layers.map(
+                                (l) =>
+                                  l[panel.side!]?.visible && (
+                                    <g
+                                      key={l.id}
+                                      data-layer={l.id}
+                                      data-side={panel.side}
+                                      dangerouslySetInnerHTML={{
+                                        __html: artMarkup(l[panel.side!]!),
+                                      }}
+                                    />
+                                  ),
+                              )}
+                            </g>
+                            {art && art.visible && side === panel.side && (
+                              <rect
+                                pointerEvents="none"
+                                x={art.x * 1000}
+                                y={art.y * 400}
+                                width={art.w * 1000}
+                                height={art.h * 400}
+                                fill="none"
+                                stroke="#286d48"
+                                strokeWidth={2 / zoom}
+                                strokeDasharray="5 4"
+                                transform={`rotate(${art.rotation} ${(art.x + art.w / 2) * 1000} ${(art.y + art.h / 2) * 400})`}
+                              />
+                            )}
+                            {art &&
+                              art.kind === 'region' &&
+                              art.rotation === 0 &&
+                              side === panel.side &&
+                              art.points.map((p, i) => {
+                                const next = art.points[(i + 1) % art.points.length]!;
+                                return (
+                                  <g key={i}>
+                                    <circle
+                                      data-edge={i}
+                                      cx={((art.x + ((p.x + next.x) / 2) * art.w) * 1000)}
+                                      cy={((art.y + ((p.y + next.y) / 2) * art.h) * 400)}
+                                      r={8 / zoom}
+                                      fill="#fff7e8"
+                                      stroke="#bd7453"
+                                      strokeWidth="2"
+                                    />
+                                    <circle
+                                      data-node={i}
+                                      cx={(art.x + p.x * art.w) * 1000}
+                                      cy={(art.y + p.y * art.h) * 400}
+                                      r={10 / zoom}
+                                      fill="white"
+                                      stroke="#286d48"
+                                      strokeWidth="2"
+                                    />
+                                  </g>
+                                );
+                              })}
+                            {line.length > 0 && side === panel.side && (
+                              <path
+                                d={pathData(line)}
+                                fill="none"
+                                stroke={color}
+                                strokeWidth={3 / zoom}
+                                strokeLinecap="round"
+                              />
+                            )}
+                          </>
+                        ) : (
+                          <rect
+                            width="1000"
+                            height="400"
+                            fill="#f7f6f2"
+                            stroke="#c5c8cc"
+                            strokeWidth={2}
+                            pointerEvents="none"
+                          />
+                        )}
+                      </g>
+                    </g>
+                  ))}
                 </svg>
               </button>
               <div className="wrap-canvas-foot">
@@ -898,10 +1008,10 @@ export default function WrapDesignStudio({
             </div>
           )}
           {showPreview && (
-            <div className="wrap-preview">
+            <div className="wrap-preview" data-preview-sync="live">
               <VehicleScene
                 ref={scene}
-                design={h.present}
+                design={project}
                 lang="zh"
                 presentation="render"
                 palette={null}
@@ -966,6 +1076,18 @@ export default function WrapDesignStudio({
             onChassis={(id) => applyShell(switchChassis(shellState(), id))}
             onIcon={(icon) => applyShell(setMarkIcon(shellState(), icon))}
             onIconColor={(next) => applyShell(setMarkColor(shellState(), next))}
+            canDeleteBlock={art?.kind === 'region'}
+            onAddBlock={() => {
+              const next = addColorBlock(h.present, side);
+              if (!save(next)) return;
+              const added = next.layers.at(-1);
+              if (added) setSelected(added.id);
+            }}
+            onDeleteBlock={() => {
+              if (art?.kind !== 'region') return;
+              save(deleteColorBlock(h.present, selected, side));
+              setSelected('');
+            }}
           />
           {advanced && (
           <>

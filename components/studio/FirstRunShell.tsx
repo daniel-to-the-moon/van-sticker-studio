@@ -182,6 +182,9 @@ export default function FirstRunShell({
   onChassis,
   onIcon,
   onIconColor,
+  onAddBlock,
+  onDeleteBlock,
+  canDeleteBlock,
 }: {
   shopName: string;
   mirror: boolean;
@@ -191,6 +194,9 @@ export default function FirstRunShell({
   onChassis: (id: ChassisId) => void;
   onIcon: (icon: MarkIcon) => void;
   onIconColor: (color: string) => void;
+  onAddBlock: () => void;
+  onDeleteBlock: () => void;
+  canDeleteBlock: boolean;
 }) {
   return (
     <section className={`wrap-first-run is-${density}`} aria-label="首屏">
@@ -241,6 +247,18 @@ export default function FirstRunShell({
           店名、对称和手势保持不变。这辆验证车体的立体预览仍用当前车型，按新车身重映射尚未接入。
         </p>
       )}
+      <div className="wrap-section">
+        <h2>店铺底色块</h2>
+        <div className="wrap-assets">
+          <button type="button" onClick={onAddBlock}>
+            添加底色块
+          </button>
+          <button type="button" onClick={onDeleteBlock} disabled={!canDeleteBlock}>
+            删除底色块
+          </button>
+        </div>
+        <p>拖顶点改范围，拖边上的点可以拐弯，绕开车窗，不用手绘路径。</p>
+      </div>
       {density === 'full' && (
         <>
           <p className="wrap-tweak-hint">点选图案后拖动，双指缩放</p>

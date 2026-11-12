@@ -4,6 +4,14 @@ import { createElement, type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
 import { parseProject } from '../lib/free-wrap.ts';
+import {
+  SHEET_ENVELOPE,
+  addColorBlock,
+  deleteColorBlock,
+  moveVertex,
+  pullEdge,
+  vehicleSheet,
+} from '../components/studio/wrap-sheet.ts';
 
 type StudioProps = {
   initialAdvanced?: boolean;
@@ -83,6 +91,12 @@ void test('first open applies a finished template with mirror on and advanced to
   assert.doesNotMatch(html, /线太短/);
   assert.doesNotMatch(html, /侧面贴画展开图/);
   assert.doesNotMatch(html, /添加图案/);
+  assert.match(html, /preserveAspectRatio="xMidYMid meet"/);
+  assert.doesNotMatch(html, /preserveAspectRatio="none"/);
+  assert.match(html, /data-sheet-views="left right front rear top"/);
+  assert.match(html, /data-preview-sync="live"/);
+  assert.match(html, />添加底色块</);
+  assert.doesNotMatch(html, /底面|underside/);
 });
 
 void test('toggling Advanced reveals path, doodle, and layer tools', () => {
@@ -137,4 +151,51 @@ void test('shop name, mirror, template, and advanced mode survive a chassis swit
   assert.doesNotMatch(html, />涂鸦</);
   assert.doesNotMatch(html, />图层</);
   assert.doesNotMatch(html, /线太短/);
+});
+
+void test('the edit sheet keeps five true-proportion views and no underside', () => {
+  const sheet = vehicleSheet();
+  assert.deepEqual(
+    sheet.panels.map((panel) => panel.id),
+    ['top', 'front', 'left', 'rear', 'right'],
+  );
+  assert.equal(
+    sheet.panels.some((panel) => panel.id === ('bottom' as never)),
+    false,
+  );
+  const left = sheet.panels.find((panel) => panel.id === 'left');
+  const front = sheet.panels.find((panel) => panel.id === 'front');
+  const top = sheet.panels.find((panel) => panel.id === 'top');
+  assert.ok(left && front && top);
+  assert.ok(
+    Math.abs(left.w / left.h - SHEET_ENVELOPE.length / SHEET_ENVELOPE.height) <
+      1e-9,
+  );
+  assert.ok(Math.abs(front.w / front.h - SHEET_ENVELOPE.width / SHEET_ENVELOPE.height) < 1e-9);
+  assert.ok(Math.abs(top.w / top.h - SHEET_ENVELOPE.length / SHEET_ENVELOPE.width) < 1e-9);
+  assert.ok(Math.abs(sheet.aspect - sheet.width / sheet.height) < 1e-9);
+  assert.equal(left.side, 'entry');
+  assert.equal(front.side, null);
+});
+
+void test('color blocks can be added, deleted, and reshaped off a rectangle', () => {
+  const start = firstRun.createFirstRunState().project;
+  const added = addColorBlock(start, 'entry');
+  assert.equal(added.layers.length, start.layers.length + 1);
+  const block = added.layers.at(-1);
+  assert.ok(block?.entry && block.driver);
+  assert.equal(block.entry.kind, 'region');
+  assert.equal(block.entry.points.length, 4);
+  assert.equal(block.linked, true);
+  const pulled = pullEdge(block.entry, 0, { x: 0.4, y: 0.2 });
+  assert.equal(pulled.patch.points.length, 5);
+  const moved = moveVertex(
+    { ...block.entry, ...pulled.patch },
+    pulled.index,
+    { x: 0.15, y: 0.12 },
+  );
+  assert.ok(moved.y < block.entry.y);
+  const removed = deleteColorBlock(added, block.id, 'entry');
+  assert.equal(removed.layers.length, start.layers.length);
+  parseProject(JSON.stringify(added));
 });

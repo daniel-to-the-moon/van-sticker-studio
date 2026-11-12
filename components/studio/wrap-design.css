@@ -175,8 +175,8 @@
 }
 .wrap-canvas {
   width: 100%;
-  max-height: 70vh;
-  aspect-ratio: 2.5;
+  max-height: none;
+  height: auto;
   touch-action: none;
   user-select: none;
   overflow: hidden;
@@ -632,8 +632,8 @@
   }
 }
 .wrap-canvas {
-  aspect-ratio: 1.902;
-  max-height: 62vh;
+  max-height: none;
+  height: auto;
 }
 .wrap-order {
   border: 0;
@@ -652,7 +652,6 @@
   }
   .wrap-canvas {
     max-height: none;
-    aspect-ratio: 1.902;
   }
 }
 
@@ -677,7 +676,7 @@
   padding: 8px 4% 12px;
 }
 .wrap-workspace.is-first-run .wrap-canvas {
-  max-height: 28vh;
+  max-height: none;
 }
 .wrap-workspace.is-first-run .wrap-message {
   order: 3;

@@ -29,6 +29,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { waitingPose } from '../../lib/stage-motion.ts';
 import type { VehiclePalette } from '../../lib/vehicle-palettes.ts';
 import type { Sticker } from '@/lib/stickers';
+import { clearOccludingWindowFrames } from '../../lib/window-wrap-clearance.ts';
 export type MotionNode = {
   name: string;
   kind: 'rotation' | 'translation' | 'scale' | 'morph';
@@ -342,6 +343,9 @@ export class SceneEngine {
         }
       });
       glazing.forEach((_, source) => source.dispose());
+      // Frames and sills sit outside the wrap shell. Drop only those
+      // triangles so the film reaches the glass hole. The GLB file is unchanged.
+      clearOccludingWindowFrames(this.root);
       this.wrapEditor = new VehicleWrapEditor({
         root: this.root,
         camera: this.camera,
