@@ -277,6 +277,7 @@ export default function InteriorLayoutPage() {
     <div className={styles.container}>
       <header className={styles.header}>
         <Link href="/" className={styles.backLink}>← 返回首页</Link>
+        <Link href='/design' className={`${styles.backLink} ms-4`}>返回设计工作台</Link>
         <h1 className={styles.title}>室内布局草图</h1>
       </header>
 
