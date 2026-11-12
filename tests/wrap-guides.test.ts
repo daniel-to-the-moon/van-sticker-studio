@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import test from 'node:test';
-import sharp from 'sharp';
+import rasterizer from 'sharp';
 import { Box3, Vector3 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import {
@@ -24,6 +24,18 @@ const body = {
 const frame = createSideProjection(body);
 const sides = ['entry', 'driver'] as const;
 
+type Raster = {
+  data: Buffer;
+  info: { width: number; height: number; channels: number };
+};
+const sharp = rasterizer as (input: Buffer) => {
+  ensureAlpha: () => {
+    raw: () => {
+      toBuffer: (options: { resolveWithObject: true }) => Promise<Raster>;
+    };
+  };
+};
+
 function decode(uri: string) {
   return sharp(Buffer.from(uri.split(',')[1], 'base64'))
     .ensureAlpha()
@@ -31,7 +43,6 @@ function decode(uri: string) {
     .toBuffer({ resolveWithObject: true });
 }
 
-type Raster = Awaited<ReturnType<typeof decode>>;
 function pixel(raster: Raster, x: number, y: number) {
   const { width, height, channels } = raster.info;
   const offset = (Math.floor(y * height) * width + Math.floor(x * width)) * channels;

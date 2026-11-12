@@ -1,7 +1,7 @@
 /** UI side guides from the unchanged closed-pose GLB. Not fabrication drawings. */
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import sharp from 'sharp';
+import rasterizer from 'sharp';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { findFrontWrapTransitions } from '../lib/wrap-eligibility.ts';
@@ -11,6 +11,11 @@ import {
   projectSidePoint,
   liftSideChartTriangle,
 } from '../lib/wrap-side-projection.ts';
+
+const sharp = rasterizer as (
+  input: Buffer,
+  options: { raw: { width: number; height: number; channels: 1 | 4 } },
+) => { png: () => { toBuffer: () => Promise<Buffer> } };
 
 const bytes = fs.readFileSync('public/model/mxgarage-rv.glb'),
   meta = JSON.parse(
