@@ -89,6 +89,7 @@ for (const [side, sign] of [
         geo.groups && geo.groups.length
           ? geo.groups
           : [{ start: 0, count: total, materialIndex: 0 }];
+    const winding = mesh.matrixWorld.determinant() < 0 ? -1 : 1;
     for (const group of groups) {
       const mat = mats[Math.min(group.materialIndex ?? 0, mats.length - 1)];
       if (!mat?.visible || /Interior|Fabric/.test(mat.name)) continue;
@@ -107,6 +108,14 @@ for (const [side, sign] of [
           .clone()
           .sub(pts[0])
           .cross(pts[2].clone().sub(pts[0]));
+        // The live renderer replaces the glass with a double-sided material.
+        const frontFacing = normal.z * sign * winding > 0;
+        if (
+          mat.name !== 'Glass' &&
+          ((mat.side === THREE.FrontSide && !frontFacing) ||
+            (mat.side === THREE.BackSide && frontFacing))
+        )
+          continue;
         const nLen = normal.length();
         const shade = nLen > 0 ? 0.78 + 0.22 * Math.abs(normal.z / nLen) : 1;
         const base = colorFor(eligible, mat.name);
