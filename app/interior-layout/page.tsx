@@ -42,6 +42,7 @@ export default function InteriorLayoutPage() {
   const [keyboardMode, setKeyboardMode] = useState(false);
   const [keyboardPosition, setKeyboardPosition] = useState({ x: 0, y: 0 });
 
+  const paletteRef = useRef<HTMLButtonElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const activePointerIdRef = useRef<number | null>(null);
 
@@ -153,7 +154,12 @@ export default function InteriorLayoutPage() {
   }, [pointerToMM, placedFixtures]);
 
   const clearPreview = useCallback(() => {
+    const pointerId = activePointerIdRef.current;
+    const palette = paletteRef.current;
     activePointerIdRef.current = null;
+    if (pointerId !== null && palette?.hasPointerCapture(pointerId)) {
+      palette.releasePointerCapture(pointerId);
+    }
     setIsDragging(false);
     setPreview(null);
     setKeyboardMode(false);
@@ -255,7 +261,16 @@ export default function InteriorLayoutPage() {
       }
     };
     window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
+    const handleHidden = () => {
+      if (document.hidden) clearPreview();
+    };
+    window.addEventListener("blur", clearPreview);
+    document.addEventListener("visibilitychange", handleHidden);
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("blur", clearPreview);
+      document.removeEventListener("visibilitychange", handleHidden);
+    };
   }, [isDragging, keyboardMode, clearPreview]);
 
   return (
@@ -272,6 +287,8 @@ export default function InteriorLayoutPage() {
       <div className={styles.controls}>
         <button
           type="button"
+          ref={paletteRef}
+          onBlur={() => { if (keyboardMode) clearPreview(); }}
           data-testid="fixture-palette"
           className={styles.palette}
           onPointerDown={handlePointerDown}
@@ -291,8 +308,6 @@ export default function InteriorLayoutPage() {
       <div
         data-testid="layout-board"
         className={styles.board}
-        role="img"
-        aria-label={`布局平面图，尺寸 ${ENVELOPE_WIDTH} × ${ENVELOPE_HEIGHT} 毫米`}
       >
         <div ref={boardRef} className={styles.envelope}>
           {placedFixtures.map((fixture) => {
@@ -358,15 +373,14 @@ export default function InteriorLayoutPage() {
         </div>
       </div>
 
-      <div
+      <output
         data-testid="placement-status"
         className={styles.status}
-        role="status"
         aria-live="polite"
         aria-atomic="true"
       >
         {statusMessage}
-      </div>
+      </output>
     </div>
   );
 }

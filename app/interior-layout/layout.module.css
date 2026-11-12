@@ -107,10 +107,10 @@
   border: 2px solid #d4c4a8;
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(139, 111, 71, 0.08);
-  overflow: hidden;
 }
 
 .envelope {
+  border-radius: inherit;
   position: absolute;
   inset: 0;
   background: repeating-linear-gradient(
@@ -151,6 +151,7 @@
 }
 
 .preview {
+  z-index: 1;
   position: absolute;
   border-radius: 3px;
   transition: opacity 0.1s;
@@ -191,6 +192,7 @@
 }
 
 .status {
+  display: block;
   text-align: center;
   min-height: 1.5rem;
   font-size: 0.95rem;
