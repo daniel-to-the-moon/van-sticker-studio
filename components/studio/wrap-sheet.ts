@@ -26,6 +26,9 @@ export type SheetView = 'left' | 'right' | 'front' | 'rear' | 'top';
 export type SheetPanel = {
   id: SheetView;
   label: string;
+  nose: string;
+  /** Match the 3D camera: entry nose is on the right of the screen. */
+  flipX: boolean;
   x: number;
   y: number;
   w: number;
@@ -52,21 +55,55 @@ export function vehicleSheet(
   const rearX = leftX + length + GAP;
   const rightX = rearX + width + GAP;
   const panels: SheetPanel[] = [
-    { id: 'top', label: '顶面', x: leftX, y: LABEL, w: length, h: width, side: null },
-    { id: 'front', label: '正面', x: 0, y: rowY, w: width, h: height, side: null },
+    {
+      id: 'top',
+      label: '顶面',
+      nose: '车头在左',
+      flipX: false,
+      x: leftX,
+      y: LABEL,
+      w: length,
+      h: width,
+      side: null,
+    },
+    {
+      id: 'front',
+      label: '正面',
+      nose: '',
+      flipX: false,
+      x: 0,
+      y: rowY,
+      w: width,
+      h: height,
+      side: null,
+    },
     {
       id: 'left',
-      label: '左侧',
+      label: '入口门这侧',
+      nose: '车头在右',
+      flipX: true,
       x: leftX,
       y: rowY,
       w: length,
       h: height,
       side: 'entry',
     },
-    { id: 'rear', label: '后面', x: rearX, y: rowY, w: width, h: height, side: null },
+    {
+      id: 'rear',
+      label: '后面',
+      nose: '',
+      flipX: false,
+      x: rearX,
+      y: rowY,
+      w: width,
+      h: height,
+      side: null,
+    },
     {
       id: 'right',
-      label: '右侧',
+      label: '另一侧',
+      nose: '车头在左',
+      flipX: false,
       x: rightX,
       y: rowY,
       w: length,
@@ -86,6 +123,9 @@ export function vehicleSheet(
 
 export const SHEET = vehicleSheet();
 
+/** Driver windows 3 and 4 sit on body paint, not a wrap shell. Chart is nose-left. */
+export const DRIVER_UNPAINTABLE = { x: 0.42, y: 0.24, w: 0.5, h: 0.18 };
+
 export function panelAt(x: number, y: number, sheet = SHEET): SheetPanel | null {
   return (
     sheet.panels.find(
@@ -98,8 +138,21 @@ export function panelAt(x: number, y: number, sheet = SHEET): SheetPanel | null 
   );
 }
 
+export function displayArt(art: Art, flipX: boolean): Art {
+  if (!flipX) return art;
+  const moved = { ...art, x: 1 - art.x - art.w, rotation: -art.rotation };
+  if (art.kind === 'region' || art.kind === 'stroke') {
+    moved.points = art.points.map((point) => ({ x: 1 - point.x, y: point.y }));
+  }
+  return moved;
+}
+
 export function panelLocal(panel: SheetPanel, x: number, y: number): Point {
-  return { x: (x - panel.x) / panel.w, y: (y - panel.y) / panel.h };
+  const displayed = (x - panel.x) / panel.w;
+  return {
+    x: panel.flipX ? 1 - displayed : displayed,
+    y: (y - panel.y) / panel.h,
+  };
 }
 
 export function chartPoints(art: Art): Point[] {
@@ -176,12 +229,23 @@ export function addColorBlock(project: Project, side: Side = 'entry'): Project {
   const id = blockId(project);
   const placed = addLayer(project, newLayer('region', id), side, true);
   const shape = regionFromChart([
-    { x: 0.22, y: 0.4 },
-    { x: 0.58, y: 0.4 },
-    { x: 0.58, y: 0.68 },
-    { x: 0.22, y: 0.68 },
+    { x: 0.05, y: 0.72 },
+    { x: 0.28, y: 0.72 },
+    { x: 0.28, y: 0.9 },
+    { x: 0.05, y: 0.9 },
   ]);
-  return editLayer(placed, id, side, { ...shape, color: '#c4553a' });
+  const painted = editLayer(placed, id, side, { ...shape, color: '#8aafa1' });
+  const block = painted.layers.find((layer) => layer.id === id);
+  if (!block) return painted;
+  const others = painted.layers.filter((layer) => layer.id !== id);
+  const textAt = others.findIndex(
+    (layer) => layer.entry?.kind === 'text' || layer.driver?.kind === 'text',
+  );
+  const layers =
+    textAt < 0
+      ? painted.layers
+      : [...others.slice(0, textAt), block, ...others.slice(textAt)];
+  return { ...painted, layers };
 }
 
 export function deleteColorBlock(

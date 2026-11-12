@@ -73,9 +73,11 @@ import {
 import './wrap-design.css';
 import guides from '@/lib/wrap-guides.json';
 import {
+  DRIVER_UNPAINTABLE,
   SHEET,
   addColorBlock,
   deleteColorBlock,
+  displayArt,
   moveVertex,
   panelAt,
   panelLocal,
@@ -852,41 +854,64 @@ export default function WrapDesignStudio({
                   }}
                 >
                   <defs>
-                    {(['entry', 'driver'] as const).map((face) => (
-                      <mask
-                        key={face}
-                        id={`side-guide-${face}`}
-                        maskUnits="userSpaceOnUse"
-                        x="0"
-                        y="0"
-                        width="1000"
-                        height="400"
-                      >
-                        <image href={guides[face].mask} width="1000" height="400" />
-                      </mask>
-                    ))}
+                    {SHEET.panels
+                      .filter((panel) => panel.side)
+                      .map((panel) => (
+                        <mask
+                          key={panel.side}
+                          id={`side-guide-${panel.side}`}
+                          maskUnits="userSpaceOnUse"
+                          x="0"
+                          y="0"
+                          width="1000"
+                          height="400"
+                        >
+                          <g
+                            transform={
+                              panel.flipX
+                                ? 'translate(1000 0) scale(-1 1)'
+                                : undefined
+                            }
+                          >
+                            <image
+                              href={guides[panel.side!].mask}
+                              width="1000"
+                              height="400"
+                            />
+                          </g>
+                        </mask>
+                      ))}
                   </defs>
                   {SHEET.panels.map((panel) => (
                     <g key={panel.id} data-sheet-view={panel.id}>
                       <text
                         x={panel.x}
-                        y={panel.y - 0.06}
-                        fontSize="0.22"
+                        y={Math.max(0.22, panel.y - 0.06)}
+                        fontSize="0.2"
                         fill="#646a73"
                       >
                         {panel.label}
+                        {panel.nose ? ` · ${panel.nose}` : ''}
                       </text>
                       <g
                         transform={`translate(${panel.x} ${panel.y}) scale(${panel.w / 1000} ${panel.h / 400})`}
                       >
                         {panel.side ? (
                           <>
-                            <image
-                              href={guides[panel.side].image}
-                              width="1000"
-                              height="400"
-                              pointerEvents="none"
-                            />
+                            <g
+                              transform={
+                                panel.flipX
+                                  ? 'translate(1000 0) scale(-1 1)'
+                                  : undefined
+                              }
+                            >
+                              <image
+                                href={guides[panel.side].image}
+                                width="1000"
+                                height="400"
+                                pointerEvents="none"
+                              />
+                            </g>
                             <g mask={`url(#side-guide-${panel.side})`}>
                               <rect
                                 width="1000"
@@ -896,60 +921,101 @@ export default function WrapDesignStudio({
                               {project.layers.map(
                                 (l) =>
                                   l[panel.side!]?.visible && (
-                                    <g
-                                      key={l.id}
-                                      data-layer={l.id}
-                                      data-side={panel.side}
-                                      dangerouslySetInnerHTML={{
-                                        __html: artMarkup(l[panel.side!]!),
-                                      }}
-                                    />
+                                    <g key={l.id} data-side={panel.side}>
+                                      {(() => {
+                                        const piece = displayArt(
+                                          l[panel.side!]!,
+                                          panel.flipX,
+                                        );
+                                        return (
+                                          <>
+                                            <rect
+                                              data-layer={l.id}
+                                              x={piece.x * 1000}
+                                              y={piece.y * 400}
+                                              width={Math.max(piece.w * 1000, 160)}
+                                              height={Math.max(piece.h * 400, 120)}
+                                              fill="transparent"
+                                            />
+                                            <g
+                                              data-layer={l.id}
+                                              dangerouslySetInnerHTML={{
+                                                __html: artMarkup(piece),
+                                              }}
+                                            />
+                                          </>
+                                        );
+                                      })()}
+                                    </g>
                                   ),
                               )}
                             </g>
-                            {art && art.visible && side === panel.side && (
-                              <rect
-                                pointerEvents="none"
-                                x={art.x * 1000}
-                                y={art.y * 400}
-                                width={art.w * 1000}
-                                height={art.h * 400}
-                                fill="none"
-                                stroke="#286d48"
-                                strokeWidth={2 / zoom}
-                                strokeDasharray="5 4"
-                                transform={`rotate(${art.rotation} ${(art.x + art.w / 2) * 1000} ${(art.y + art.h / 2) * 400})`}
-                              />
-                            )}
+                            {art &&
+                              art.visible &&
+                              side === panel.side &&
+                              (() => {
+                                const shown = displayArt(art, panel.flipX);
+                                return (
+                                  <rect
+                                    pointerEvents="none"
+                                    x={shown.x * 1000}
+                                    y={shown.y * 400}
+                                    width={shown.w * 1000}
+                                    height={shown.h * 400}
+                                    fill="none"
+                                    stroke="#286d48"
+                                    strokeWidth={2 / zoom}
+                                    strokeDasharray="5 4"
+                                    transform={`rotate(${shown.rotation} ${(shown.x + shown.w / 2) * 1000} ${(shown.y + shown.h / 2) * 400})`}
+                                  />
+                                );
+                              })()}
                             {art &&
                               art.kind === 'region' &&
                               art.rotation === 0 &&
                               side === panel.side &&
-                              art.points.map((p, i) => {
-                                const next = art.points[(i + 1) % art.points.length]!;
-                                return (
-                                  <g key={i}>
-                                    <circle
-                                      data-edge={i}
-                                      cx={((art.x + ((p.x + next.x) / 2) * art.w) * 1000)}
-                                      cy={((art.y + ((p.y + next.y) / 2) * art.h) * 400)}
-                                      r={8 / zoom}
-                                      fill="#fff7e8"
-                                      stroke="#bd7453"
-                                      strokeWidth="2"
-                                    />
-                                    <circle
-                                      data-node={i}
-                                      cx={(art.x + p.x * art.w) * 1000}
-                                      cy={(art.y + p.y * art.h) * 400}
-                                      r={10 / zoom}
-                                      fill="white"
-                                      stroke="#286d48"
-                                      strokeWidth="2"
-                                    />
-                                  </g>
-                                );
-                              })}
+                              (() => {
+                                const shown = displayArt(art, panel.flipX);
+                                return shown.points.map((p, i) => {
+                                  const next =
+                                    shown.points[(i + 1) % shown.points.length]!;
+                                  return (
+                                    <g key={i}>
+                                      <circle
+                                        data-edge={i}
+                                        cx={
+                                          (shown.x +
+                                            ((p.x + next.x) / 2) * shown.w) *
+                                          1000
+                                        }
+                                        cy={
+                                          (shown.y +
+                                            ((p.y + next.y) / 2) * shown.h) *
+                                          400
+                                        }
+                                        r={70 / zoom}
+                                        fill="transparent"
+                                      />
+                                      <circle
+                                        data-node={i}
+                                        cx={(shown.x + p.x * shown.w) * 1000}
+                                        cy={(shown.y + p.y * shown.h) * 400}
+                                        r={70 / zoom}
+                                        fill="transparent"
+                                      />
+                                      <circle
+                                        pointerEvents="none"
+                                        cx={(shown.x + p.x * shown.w) * 1000}
+                                        cy={(shown.y + p.y * shown.h) * 400}
+                                        r={16 / zoom}
+                                        fill="white"
+                                        stroke="#286d48"
+                                        strokeWidth="3"
+                                      />
+                                    </g>
+                                  );
+                                });
+                              })()}
                             {line.length > 0 && side === panel.side && (
                               <path
                                 d={pathData(line)}
@@ -969,6 +1035,27 @@ export default function WrapDesignStudio({
                             strokeWidth={2}
                             pointerEvents="none"
                           />
+                        )}
+                        {panel.side === 'driver' && (
+                          <g pointerEvents="none">
+                            <rect
+                              x={DRIVER_UNPAINTABLE.x * 1000}
+                              y={DRIVER_UNPAINTABLE.y * 400}
+                              width={DRIVER_UNPAINTABLE.w * 1000}
+                              height={DRIVER_UNPAINTABLE.h * 400}
+                              fill="#ffffffaa"
+                              stroke="#c4553a"
+                              strokeDasharray="8 6"
+                            />
+                            <text
+                              x={(DRIVER_UNPAINTABLE.x + 0.02) * 1000}
+                              y={(DRIVER_UNPAINTABLE.y + 0.1) * 400}
+                              fontSize="42"
+                              fill="#9a3b2f"
+                            >
+                              这段漆面贴不上
+                            </text>
+                          </g>
                         )}
                       </g>
                     </g>
@@ -1020,7 +1107,8 @@ export default function WrapDesignStudio({
                 parts={parts}
                 wipers={false}
                 environment="studio"
-                onPick={(id) => setParts((p) => ({ ...p, [id]: !p[id] }))}
+                onPick={() => {}}
+                exploreParts={false}
                 onReady={() => scene.current?.setView(side)}
               />
               <div className="wrap-preview-views">

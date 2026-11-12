@@ -44,6 +44,7 @@ interface Props {
   parts: Record<string, boolean>;
   wipers: boolean;
   environment: 'camp' | 'studio';
+  exploreParts?: boolean;
   onPick: (id: string) => void;
   onReady: (meta: Metadata) => void;
   onWrapEdit?: (state: WrapEditState) => void;
@@ -165,8 +166,14 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
             },
             onError: (code) =>
               active && setError(t(latest.current.lang, ERROR_KEYS[code])),
-            onPick: (id) => latest.current.onPick(id),
-            onHover: (id, x, y) => active && setHover(id ? { id, x, y } : null),
+            onPick: (id) => {
+              if (latest.current.exploreParts === false) return;
+              latest.current.onPick(id);
+            },
+            onHover: (id, x, y) =>
+              active &&
+              latest.current.exploreParts !== false &&
+              setHover(id ? { id, x, y } : null),
             onWrapEdit: (state) => {
               if (active) {
                 setWrapEdit(state);

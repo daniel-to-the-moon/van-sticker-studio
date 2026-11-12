@@ -675,8 +675,13 @@
   min-height: 168px;
   padding: 8px 4% 12px;
 }
+.wrap-canvas-shell {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
 .wrap-workspace.is-first-run .wrap-canvas {
   max-height: none;
+  min-width: 980px;
 }
 .wrap-workspace.is-first-run .wrap-message {
   order: 3;

@@ -81,7 +81,8 @@ void test('first open applies a finished template with mirror on and advanced to
   assert.match(html, /data-layers="3"/);
   assert.match(html, /aria-label="店名"/);
   assert.match(html, /value="MXGARAGE"/);
-  assert.match(html, /另一侧已自动同步，文字正向可读/);
+  assert.match(html, /店名会同步到另一侧，字是正的/);
+  assert.match(html, /这段漆面贴不上/);
   assert.match(html, /data-theme-slot="s2-pending"/);
   assert.match(html, /换一套主题/);
   assert.doesNotMatch(html, />范围</);
@@ -175,6 +176,7 @@ void test('the edit sheet keeps five true-proportion views and no underside', ()
   assert.ok(Math.abs(top.w / top.h - SHEET_ENVELOPE.length / SHEET_ENVELOPE.width) < 1e-9);
   assert.ok(Math.abs(sheet.aspect - sheet.width / sheet.height) < 1e-9);
   assert.equal(left.side, 'entry');
+  assert.equal(left.flipX, true);
   assert.equal(front.side, null);
 });
 
@@ -182,9 +184,11 @@ void test('color blocks can be added, deleted, and reshaped off a rectangle', ()
   const start = firstRun.createFirstRunState().project;
   const added = addColorBlock(start, 'entry');
   assert.equal(added.layers.length, start.layers.length + 1);
-  const block = added.layers.at(-1);
+  const block = added.layers.find((layer) => layer.id.startsWith('block-'));
   assert.ok(block?.entry && block.driver);
   assert.equal(block.entry.kind, 'region');
+  assert.equal(block.entry.color, '#8aafa1');
+  assert.ok(block.entry.y > 0.6);
   assert.equal(block.entry.points.length, 4);
   assert.equal(block.linked, true);
   const pulled = pullEdge(block.entry, 0, { x: 0.4, y: 0.2 });

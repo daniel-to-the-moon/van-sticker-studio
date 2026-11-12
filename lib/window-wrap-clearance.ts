@@ -18,9 +18,9 @@ export const WINDOW_FRAME_MESHES = [
   'RV_WebRig_Rooflight_Rubber',
 ] as const;
 
-const FRAME_PAD_M = 0.12;
-/** Frames can sit slightly inside the glass centre and still cover the wrap. */
-const FRAME_INWARD_M = 0.04;
+const FRAME_PAD_M = 0.035;
+/** Only the lip that sits proud of the glass. A wider cut deletes the black frame. */
+const FRAME_INWARD_M = 0.012;
 /** Windshield and other thick glass volumes are not side-window apertures. */
 const MAX_APERTURE_THICKNESS_M = 0.3;
 

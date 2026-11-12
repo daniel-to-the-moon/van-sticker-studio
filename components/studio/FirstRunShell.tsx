@@ -91,6 +91,24 @@ export function starterProject(): Project {
         : {}),
     });
   }
+  const text = project.layers.find((layer) => layer.entry?.kind === 'text');
+  if (text) {
+    project = editLayer(project, text.id, 'entry', {
+      x: 0.34,
+      y: 0.5,
+      w: 0.15,
+      h: 0.14,
+    });
+  }
+  const icon = project.layers.find((layer) => layer.entry?.kind === 'icon');
+  if (icon) {
+    project = editLayer(project, icon.id, 'entry', {
+      x: 0.34,
+      y: 0.66,
+      w: 0.08,
+      h: 0.16,
+    });
+  }
   return project;
 }
 
@@ -211,20 +229,11 @@ export default function FirstRunShell({
       </label>
       <p className="wrap-mirror-note">
         {mirror
-          ? '另一侧已自动同步，文字正向可读'
+          ? '店名会同步到另一侧，字是正的。另一侧有一段漆面贴不上，那里会留白。'
           : '这一侧单独保留，另一侧不会跟着改'}
       </p>
       <div className="wrap-theme-slot" data-theme-slot="s2-pending">
-        <button
-          type="button"
-          disabled
-          aria-describedby="wrap-theme-slot-note"
-        >
-          换一套主题
-        </button>
-        <p id="wrap-theme-slot-note">
-          主题包接入后可一键更换，当前仍是这一套成品
-        </p>
+        <p id="wrap-theme-slot-note">换一套主题会在主题包接入后出现。</p>
       </div>
       <label className="wrap-chassis">
         车型
@@ -244,7 +253,7 @@ export default function FirstRunShell({
       </label>
       {chassisId !== 'current-glb' && (
         <p className="wrap-chassis-note">
-          店名、对称和手势保持不变。这辆验证车体的立体预览仍用当前车型，按新车身重映射尚未接入。
+          这辆验证车体还在接入，预览暂时仍用当前车。店名和对称会保留。
         </p>
       )}
       <div className="wrap-section">
