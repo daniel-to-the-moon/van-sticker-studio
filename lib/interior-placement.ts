@@ -74,6 +74,9 @@ export function validateFixturePlacement(
     if (!isValidRectangle(clearance)) {
       return { valid: false, reason: 'invalid_geometry' };
     }
+    if (!isFiniteRect(clearance)) {
+      return { valid: false, reason: 'invalid_geometry' };
+    }
   }
 
   // Get candidate bounds after rotation
@@ -166,4 +169,3 @@ function rectanglesOverlap(a: Rectangle, b: Rectangle): boolean {
     a.y + a.height > b.y
   );
 }
-
