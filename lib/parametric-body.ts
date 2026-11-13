@@ -150,10 +150,15 @@ export interface BodyConfig {
   wheelbaseClass: WheelbaseClass;
   /** Wheelbase, or hitch-to-axle distance for towable kinds. */
   wheelbaseMm: number;
-  /** Front overhang: nose to front axle (B-type trio slider). */
-  frontOverhangMm: number;
-  /** Rear overhang: rear axle to tail (B-type trio slider). */
-  rearOverhangMm: number;
+  /**
+   * Announcement front overhang, mm. Present only on a registry row
+   * that verified it. Omitted on the prototype demo; that demo stays
+   * on the schematic body. The detail generator rejects a call that
+   * omits this field.
+   */
+  frontOverhangMm?: number;
+  /** Announcement rear overhang, mm. See frontOverhangMm. */
+  rearOverhangMm?: number;
   /** Overall length, or trailer body length for towable kinds. */
   lengthMm: number;
   widthMm: number;
@@ -399,8 +404,8 @@ export const KIND_DEFAULTS: Record<VehicleKind, BodyConfig> = {
     vehicleKind: 'motorhome-b',
     wheelbaseClass: 'long',
     wheelbaseMm: WHEELBASE_PRESETS_MM.long,
-    frontOverhangMm: 1045,
-    rearOverhangMm: 1045,
+    // No verified overhangs on the prototype demo: the detail generator
+    // rejects a config that omits them, and the scene keeps the schematic.
     lengthMm: 5840,
     widthMm: 2220,
     heightMm: ROOF_CLOSED_HEIGHT_MM.high,
@@ -842,10 +847,13 @@ export interface AnnouncedChassisPoints {
 }
 
 export function trioOf(config: BodyConfig): ChassisTrio {
+  // Omitted overhangs (prototype demo / unverified rows) fall back to
+  // the symmetric split, the same default the kind defaults use.
+  const split = (config.lengthMm - config.wheelbaseMm) / 2;
   return {
-    frontOverhangMm: config.frontOverhangMm,
+    frontOverhangMm: config.frontOverhangMm ?? split,
     wheelbaseMm: config.wheelbaseMm,
-    rearOverhangMm: config.rearOverhangMm,
+    rearOverhangMm: config.rearOverhangMm ?? split,
   };
 }
 

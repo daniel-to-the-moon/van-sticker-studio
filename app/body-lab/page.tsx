@@ -2,7 +2,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import BodyConfigPanel from '@/components/studio/BodyConfigPanel';
-import { configForRegisteredModel } from '@/lib/announcement-db-data';
+import {
+  configForRegisteredModel,
+  registryEntryForModel,
+} from '@/lib/announcement-db-data';
 import { t, type Lang } from '@/lib/i18n';
 import {
   DEFAULT_BODY_CONFIG,
@@ -51,29 +54,44 @@ export default function BodyLabPage() {
 
   const handleSelectModel = (modelId: string | null) => {
     setRegisteredModelId(modelId);
-    const next =
-      modelId === null
-        ? { ...DEFAULT_BODY_CONFIG }
-        : configForRegisteredModel(modelId);
-    if (next === null) return;
-    const prev = displayRef.current;
-    configRef.current = next;
-    setConfig(next);
-    if (
-      prev.vehicleKind === 'motorhome-b' &&
-      next.vehicleKind === 'motorhome-b'
-    ) {
-      animRef.current = {
-        from: trioOf(prev),
-        to: trioOf(next),
-        start: performance.now(),
-        dur: 300,
-      };
-    } else {
-      animRef.current = null;
-      displayRef.current = next;
-      setDisplay(next);
+    const glideTo = (next: BodyConfig) => {
+      const prev = displayRef.current;
+      configRef.current = next;
+      if (
+        prev.vehicleKind === 'motorhome-b' &&
+        next.vehicleKind === 'motorhome-b'
+      ) {
+        animRef.current = {
+          from: trioOf(prev),
+          to: trioOf(next),
+          start: performance.now(),
+          dur: 300,
+        };
+      } else {
+        animRef.current = null;
+        displayRef.current = next;
+        setDisplay(next);
+      }
+    };
+    if (modelId === null) {
+      setConfig({ ...DEFAULT_BODY_CONFIG });
+      glideTo({ ...DEFAULT_BODY_CONFIG });
+      return;
     }
+    const next = configForRegisteredModel(modelId);
+    if (next === null) return;
+    const verified = registryEntryForModel(modelId)?.verified;
+    const resolved: BodyConfig = {
+      ...next,
+      ...(typeof verified?.front_overhang_mm === 'number'
+        ? { frontOverhangMm: verified.front_overhang_mm }
+        : {}),
+      ...(typeof verified?.rear_overhang_mm === 'number'
+        ? { rearOverhangMm: verified.rear_overhang_mm }
+        : {}),
+    };
+    setConfig(resolved);
+    glideTo(resolved);
   };
   const [popKey, setPopKey] = useState(0);
   const host = useRef<HTMLDivElement>(null);
