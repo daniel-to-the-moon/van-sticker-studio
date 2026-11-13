@@ -117,8 +117,7 @@ function IconButton({
 
 export default function WrapDesignStudio() {
   const [h, setH] = useState<History>(() => history(emptyProject()));
-  const [legacyGuide, setLegacyGuide] = useState<typeof legacyGuides>();
-  const [legacyGuideError, setLegacyGuideError] = useState(false);
+  const [legacyGuide, setLegacyGuide] = useState<typeof legacyGuides | null>();
   const [hydrated, setHydrated] = useState(false),
     [saveStatus, setSaveStatus] = useState<DraftStatus>('loading');
   const draft = useRef<DraftPersistence | null>(null);
@@ -157,7 +156,6 @@ export default function WrapDesignStudio() {
   useEffect(() => {
     if (!legacy) return;
     let active = true;
-    setLegacyGuideError(false);
     legacyGuideLoad ??= import('@/lib/wrap-legacy-guides.json')
       .then((module) => module.default)
       .catch((error: unknown) => {
@@ -169,7 +167,7 @@ export default function WrapDesignStudio() {
         if (active) setLegacyGuide(guide);
       },
       () => {
-        if (active) setLegacyGuideError(true);
+        if (active) setLegacyGuide(null);
       },
     );
     return () => {
@@ -669,9 +667,9 @@ export default function WrapDesignStudio() {
           {mode === 'edit' ? (
             <div className="wrap-canvas-shell">
               {!sideGuide && (
-                <p role="status">
-                  {legacyGuideError ? '旧版底图加载失败，请刷新重试。' : '正在加载旧版底图…'}
-                </p>
+                <output>
+                  {legacyGuide === null ? '旧版底图加载失败，请刷新重试。' : '正在加载旧版底图…'}
+                </output>
               )}
               {sideGuide && (
                 <button
