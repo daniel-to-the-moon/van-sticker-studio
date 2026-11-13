@@ -80,11 +80,17 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
     const [ready, setReady] = useState(false);
     const [error, setError] = useState('');
     useEffect(() => {
-      if (props.design)
-        engine.current
-          ?.setDesign(props.design)
-          .catch(() => setError('贴画预览暂不可用，请重新打开预览'));
-    }, [props.design]);
+      if (!ready || !engine.current) return;
+      let active = true;
+      void engine.current.setDesign(props.design ?? null).then(() => {
+        if (active) latest.current.onDesignReady?.();
+      }).catch(() => {
+        if (!active) return;
+        latest.current.onDesignError?.();
+        setError('贴画预览暂不可用，请重新打开预览');
+      });
+      return () => { active = false; };
+    }, [props.design, ready]);
     const [wrapEdit, setWrapEdit] = useState<WrapEditState | null>(null);
     const menuAction = useRef<HTMLButtonElement>(null);
     useEffect(() => {
@@ -148,16 +154,6 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
             onReady: (meta) => {
               if (!active) return;
               setReady(true);
-              engine.current
-                ?.setDesign(latest.current.design ?? null)
-                .then(() => {
-                  if (active) latest.current.onDesignReady?.();
-                })
-                .catch(() => {
-                  if (!active) return;
-                  latest.current.onDesignError?.();
-                  setError('贴画预览暂不可用，请重新打开预览');
-                });
               engine.current?.setParts(latest.current.parts);
               engine.current?.setWipers(latest.current.wipers);
               engine.current?.setEnvironment(latest.current.environment);

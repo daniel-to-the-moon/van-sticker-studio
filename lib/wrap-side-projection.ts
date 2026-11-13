@@ -9,12 +9,14 @@ export type SideFrame = {
 
 /** R13 wrap chart spans in public/model/motion_metadata.json. */
 export const R13_SIDE_ASPECT = 5.8 / 3.05;
-export const R13_END_ASPECT = 2.22 / 3.05;
+// Closed R13 transverse envelope including the cab mirror housings.
+const R13_END_WIDTH = 2.58;
+export const R13_END_ASPECT = R13_END_WIDTH / 3.05;
 
-export function createEndProjection(body: { width: number; height: number; centerZ?: number }): SideFrame {
+export function createEndProjection(body: { height: number; centerZ?: number }): SideFrame {
   return createSideProjection({
-    xMin: (body.centerZ ?? 0) - body.width / 2,
-    length: body.width,
+    xMin: (body.centerZ ?? 0) - R13_END_WIDTH / 2,
+    length: R13_END_WIDTH,
     height: body.height,
   });
 }

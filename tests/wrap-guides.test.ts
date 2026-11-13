@@ -77,7 +77,15 @@ void test('R13 front art starts in the paintable strip below the windshield', as
   const front = await decode(guides.front.ink);
   const rear = await decode(guides.rear.ink);
   assert.deepEqual(front.info, rear.info);
-  assert.ok(Math.abs(front.info.width / front.info.height - 2.22 / 3.05) < .001);
+  assert.ok(Math.abs(front.info.width / front.info.height - 2.58 / 3.05) < .001);
+  for (const face of ['front', 'rear']) {
+    const guide = await decode(guides[face].image);
+    const { width, height, channels } = guide.info;
+    for (let y = 0; y < height; y++) {
+      assert.equal(guide.data[(y * width) * channels + 3], 0);
+      assert.equal(guide.data[(y * width + width - 1) * channels + 3], 0);
+    }
+  }
 });
 
 void test('both actual R13 side silhouettes have transparent margin on all four edges', async () => {

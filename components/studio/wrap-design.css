@@ -761,8 +761,8 @@
 .wrap-canvas[data-tool='pan'] { cursor: grab; }
 .wrap-canvas[data-tool='pan']:active { cursor: grabbing; }
 .wrap-workspace svg.wrap-canvas:is([data-face='front'], [data-face='rear']) {
-  aspect-ratio: 2.22 / 3.05;
-  max-width: min(90%, calc(max(230px, 100dvh - 282px) * 2.22 / 3.05));
+  aspect-ratio: 2.58 / 3.05;
+  max-width: min(90%, calc(max(230px, 100dvh - 282px) * 2.58 / 3.05));
 }
 .wrap-paper-transition {
   position: absolute;

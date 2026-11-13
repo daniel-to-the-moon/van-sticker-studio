@@ -93,7 +93,7 @@ export function newLayer(kind: Kind, id: string): Layer {
   };
 }
 /** Practical start positions on the narrow painted band below the R13 windshield. */
-export const FRONT_ART_BOX = { x: 0.35, y: 0.585, w: 0.3, h: 0.03 };
+export const FRONT_ART_BOX = { x: 0.415, y: 0.59, w: 0.2, h: 0.04 };
 export function addLayer(
   p: Project,
   layer: Layer,
