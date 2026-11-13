@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { svgDocument, type Project } from './free-wrap.ts';
 import { findFrontWrapTransitions } from './wrap-eligibility.ts';
+import {
+  createSideProjection,
+  liftSideChartTriangle,
+  projectSidePoint,
+} from './wrap-side-projection.ts';
 import { PALETTE_PARTITION, type VehiclePalette } from './vehicle-palettes.ts';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bakeWrapAttributes } from './vehicle-wrap-adapter.ts';
@@ -147,6 +152,7 @@ export class VehicleWrapEditor {
       uDesignEntry: { value: null },
       uDesignDriver: { value: null },
       uHasDesign: { value: 0 },
+      uUseSideProjection: { value: 0 },
       uDesignSize: {
         value: new THREE.Vector3(
           this.body.length,
@@ -183,22 +189,34 @@ export class VehicleWrapEditor {
       this.cacheEntryDoor(meshes);
       this.bindLegacySurfaces(meshes, transitions, materials);
     }
+    const projectedDesign = !options.profile;
+    const designVarying = projectedDesign ? 'varying vec2 vDesignProjection;' : '';
+    const designAttribute = projectedDesign ? 'attribute vec2 aDesignProjection;' : '';
+    const designAssignment = projectedDesign ? 'vDesignProjection = aDesignProjection;' : '';
+    const legacyY = '1.-vWrapCoord.y/uDesignSize.z';
+    const legacyEntryX = 's/uDesignSize.x';
+    const legacyDriverX = '(s-uDesignSize.x-uDesignSize.y)/uDesignSize.x';
+    const projectionOr = (projected: string, legacy: string) =>
+      projectedDesign ? `mix(${legacy},${projected},uUseSideProjection)` : legacy;
+    const designY = projectionOr('vDesignProjection.y', legacyY);
+    const designEntryX = projectionOr('1.-vDesignProjection.x', legacyEntryX);
+    const designDriverX = projectionOr('vDesignProjection.x', legacyDriverX);
     for (const material of materials) {
       material.onBeforeCompile = (shader) => {
         Object.assign(shader.uniforms, this.uniforms);
         shader.vertexShader =
-          'attribute vec2 aWrapCoord; attribute float aWrapEligible; varying vec2 vWrapCoord; varying float vWrapEligible;\n' +
+          `attribute vec2 aWrapCoord; attribute float aWrapEligible; varying vec2 vWrapCoord; varying float vWrapEligible; ${designAttribute} ${designVarying}\n` +
           shader.vertexShader;
         shader.vertexShader = shader.vertexShader.replace(
           '#include <begin_vertex>',
-          '#include <begin_vertex>\nvWrapCoord = aWrapCoord; vWrapEligible = aWrapEligible;',
+          `#include <begin_vertex>\nvWrapCoord = aWrapCoord; vWrapEligible = aWrapEligible; ${designAssignment}`,
         );
         shader.fragmentShader =
-          `varying vec2 vWrapCoord; varying float vWrapEligible;
+          `varying vec2 vWrapCoord; varying float vWrapEligible; ${designVarying}
           uniform sampler2D uDecalMap; uniform float uHasDecal, uDecalAspect, uDecalPeriod, uDecalActive, uAntTime, uWrapReveal;
           uniform float uPaletteEnabled;
           uniform sampler2D uDesignEntry, uDesignDriver;
-          uniform float uHasDesign; uniform vec3 uDesignSize;
+          uniform float uHasDesign, uUseSideProjection; uniform vec3 uDesignSize;
           uniform vec3 uPaletteWhite, uPaletteAccent, uPaletteTrim;
           uniform vec2 uPaletteBand;
           uniform vec3 uDecalPlacements[2];\n` + shader.fragmentShader;
@@ -213,13 +231,13 @@ export class VehicleWrapEditor {
           }
           if(uHasDesign > .5 && vWrapEligible > .5) {
             float s=mod(vWrapCoord.x,uDecalPeriod);
-            float y=1.-vWrapCoord.y/uDesignSize.z;
+            float y=${designY};
             if(y>=0. && y<=1.) {
               if(s<=uDesignSize.x) {
-                vec4 ink=texture2D(uDesignEntry,vec2(s/uDesignSize.x,y));
+                vec4 ink=texture2D(uDesignEntry,vec2(${designEntryX},y));
                 diffuseColor.rgb=mix(diffuseColor.rgb,ink.rgb,ink.a);
               } else if(s>=uDesignSize.x+uDesignSize.y && s<=2.*uDesignSize.x+uDesignSize.y) {
-                vec4 ink=texture2D(uDesignDriver,vec2((s-uDesignSize.x-uDesignSize.y)/uDesignSize.x,y));
+                vec4 ink=texture2D(uDesignDriver,vec2(${designDriverX},y));
                 diffuseColor.rgb=mix(diffuseColor.rgb,ink.rgb,ink.a);
               }
             }
@@ -249,7 +267,9 @@ export class VehicleWrapEditor {
         );
       };
       material.customProgramCacheKey = () =>
-        'mxgarage-continuous-wrap-editor-v4-design';
+        projectedDesign
+          ? 'mxgarage-continuous-wrap-editor-v6-versioned-design'
+          : 'mxgarage-continuous-wrap-editor-v4-design';
       material.needsUpdate = true;
     }
     this.sync();
@@ -314,6 +334,7 @@ export class VehicleWrapEditor {
     this.designTextures = textures;
     this.uniforms.uDesignEntry.value = textures[0];
     this.uniforms.uDesignDriver.value = textures[1];
+    this.uniforms.uUseSideProjection.value = project.version === 2 ? 1 : 0;
     this.uniforms.uHasDesign.value = 1;
   }
   setPalette(palette: VehiclePalette | null) {
@@ -703,6 +724,7 @@ export class VehicleWrapEditor {
     transitions: Map<THREE.Mesh, Uint8Array>,
     materials: Set<THREE.MeshStandardMaterial>,
   ) {
+    const projection = createSideProjection(this.body);
     for (const o of meshes) {
       const wrap = [o.material].flat().every((m) => m.name.startsWith('Wrap_'));
       const mask = transitions.get(o);
@@ -717,21 +739,33 @@ export class VehicleWrapEditor {
         o.geometry = o.geometry.toNonIndexed();
       }
       const position = o.geometry.getAttribute('position'),
-        coords = new Float32Array(position.count * 2);
+        coords = new Float32Array(position.count * 2),
+        designCoords = new Float32Array(position.count * 2);
       const world = new THREE.Vector3();
       for (let i = 0; i < position.count; i++) {
         world.fromBufferAttribute(position, i).applyMatrix4(o.matrixWorld);
         coords[i * 2] = perimeterCoordinate(world.x, world.z, this.body);
         coords[i * 2 + 1] = world.y;
+        const projected = projectSidePoint(projection, world.x, world.y);
+        designCoords[i * 2] = projected.x;
+        designCoords[i * 2 + 1] = projected.y;
       }
       // Lift seam-crossing triangles into one local period before interpolation.
       const period = circumference(this.body);
-      for (let i = 0; i < position.count; i += 3) {
-        const ss = [coords[i * 2], coords[(i + 1) * 2], coords[(i + 2) * 2]];
-        if (Math.max(...ss) - Math.min(...ss) > period / 2)
-          for (let j = 0; j < 3; j++)
-            if (coords[(i + j) * 2] < period / 2) coords[(i + j) * 2] += period;
+      for (let i = 0; i < coords.length; i += 6) {
+        const [a, b, c] = liftSideChartTriangle(
+          [coords[i], coords[i + 2], coords[i + 4]],
+          period,
+        );
+        coords[i] = a;
+        coords[i + 2] = b;
+        coords[i + 4] = c;
       }
+      // Baked before rig motion, so a door carries its film when it opens.
+      o.geometry.setAttribute(
+        'aDesignProjection',
+        new THREE.BufferAttribute(designCoords, 2),
+      );
       o.geometry.setAttribute(
         'aWrapCoord',
         new THREE.BufferAttribute(coords, 2),

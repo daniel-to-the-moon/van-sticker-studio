@@ -2,16 +2,21 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import rasterizer from 'sharp';
-const sharp = rasterizer as (input: Buffer) => {
-  png: () => { toBuffer: () => Promise<Buffer> };
-};
-if (typeof sharp !== 'function')
-  throw new Error('Installed image renderer is unavailable');
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { findFrontWrapTransitions } from '../lib/wrap-eligibility.ts';
-import { perimeterCoordinate } from '../lib/wrap-layout.ts';
-import { sidePolygons } from '../lib/wrap-chart.ts';
+import { perimeterCoordinate, circumference } from '../lib/wrap-layout.ts';
+import {
+  createSideProjection,
+  projectSidePoint,
+  liftSideChartTriangle,
+} from '../lib/wrap-side-projection.ts';
+
+const sharp = rasterizer as (
+  input: Buffer,
+  options: { raw: { width: number; height: number; channels: 1 | 4 } },
+) => { png: () => { toBuffer: () => Promise<Buffer> } };
+
 const bytes = fs.readFileSync('public/model/mxgarage-rv.glb'),
   meta = JSON.parse(
     fs.readFileSync('public/model/motion_metadata.json', 'utf8'),
@@ -22,7 +27,7 @@ const { scene } = await new GLTFLoader().parseAsync(
 );
 scene.updateMatrixWorld(true);
 const meshes: THREE.Mesh[] = [];
-scene.traverse((o) => {
+scene.traverseVisible((o) => {
   if (o instanceof THREE.Mesh) meshes.push(o);
 });
 const bounds = new THREE.Box3();
@@ -37,89 +42,182 @@ const body = {
   centerZ: (bounds.min.z + bounds.max.z) / 2,
 };
 const transitions = findFrontWrapTransitions(meshes);
+const frame = createSideProjection(body);
+const period = circumference(body);
+const WIDTH = 2000,
+  HEIGHT = Math.round(WIDTH * frame.height / frame.width);
+const wrapS = (n: number) => ((n % period) + period) % period;
+const colorFor = (
+  eligible: boolean,
+  name: string,
+): [number, number, number] =>
+  eligible
+    ? [0xf3, 0xee, 0xdf]
+    : /Glass|Optic/.test(name)
+      ? [0xda, 0xe1, 0xe5]
+      : /Rubber|Tire|Graphite|Black/.test(name)
+        ? [0x4d, 0x53, 0x58]
+        : /Chrome/.test(name)
+          ? [0xab, 0xb0, 0xb4]
+          : [0xe3, 0xe4, 0xdf];
+
 const output: Record<string, unknown> = {
   sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
   aspect: body.length / body.height,
 };
+
 for (const [side, sign] of [
   ['entry', -1],
   ['driver', 1],
 ] as const) {
-  const faces: { z: number; path: string; color: string; eligible: boolean }[] =
-    [];
+  const guide = Buffer.alloc(WIDTH * HEIGHT * 4, 0);
+  const mask = Buffer.alloc(WIDTH * HEIGHT, 0);
+  const depth = new Float64Array(WIDTH * HEIGHT).fill(-Infinity);
+  const sMin = side === 'entry' ? 0 : body.length + body.width;
+  const sMax =
+    side === 'entry' ? body.length : 2 * body.length + body.width;
+
   for (const mesh of meshes) {
-    const mats = [mesh.material].flat(),
-      mat = mats[0];
-    if (/Interior|Fabric/.test(mat.name)) continue;
-    const wrap = mats.every((m) => m.name.startsWith('Wrap_')),
-      mask = transitions.get(mesh),
-      geo = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry,
-      pos = geo.getAttribute('position');
-    for (let i = 0; i < pos.count; i += 3) {
-      const pts = [0, 1, 2].map((j) =>
-        new THREE.Vector3()
-          .fromBufferAttribute(pos, i + j)
-          .applyMatrix4(mesh.matrixWorld),
-      );
-      const n = pts[1]
-        .clone()
-        .sub(pts[0])
-        .cross(pts[2].clone().sub(pts[0]))
-        .normalize();
-      if (n.z * sign < 0.15) continue;
-      const z = pts.reduce((v, p) => v + p.z, 0) / 3;
-      if ((z - body.centerZ) * sign < -0.05) continue;
-      const eligible = wrap || Boolean(mask?.[i / 3]);
-      const color = eligible
-        ? '#f3eedf'
-        : /Glass|Optic/.test(mat.name)
-          ? '#dae1e5'
-          : /Rubber|Tire|Graphite|Black/.test(mat.name)
-            ? '#4d5358'
-            : /Chrome/.test(mat.name)
-              ? '#abb0b4'
-              : '#e3e4df';
-      for (const polygon of sidePolygons(
-        pts.map((p) => ({
-          s: perimeterCoordinate(p.x, p.z, body),
-          h: 1 - p.y / body.height,
-        })),
-        body.length,
-        body.width,
-        side,
-      )) {
-        const path =
-          'M' +
-          polygon
-            .map((p) => `${(p.x * 1000).toFixed(2)},${(p.y * 400).toFixed(2)}`)
-            .join('L') +
-          'Z';
-        faces.push({ z, path, color, eligible });
+    const geo = mesh.geometry,
+      pos = geo.getAttribute('position'),
+      index = geo.index,
+      mats = [mesh.material].flat() as THREE.Material[],
+      allWrap = mats.every((m) => m.name.startsWith('Wrap_')),
+      triMask = transitions.get(mesh),
+      total = index ? index.count : pos.count,
+      groups =
+        geo.groups && geo.groups.length
+          ? geo.groups
+          : [{ start: 0, count: total, materialIndex: 0 }];
+    const winding = mesh.matrixWorld.determinant() < 0 ? -1 : 1;
+    for (const group of groups) {
+      const mat = mats[Math.min(group.materialIndex ?? 0, mats.length - 1)];
+      if (!mat?.visible || /Interior|Fabric/.test(mat.name)) continue;
+      const end = Math.min(group.start + group.count, total);
+      for (let v = group.start; v + 2 < end; v += 3) {
+        const ids = index
+          ? [index.getX(v), index.getX(v + 1), index.getX(v + 2)]
+          : [v, v + 1, v + 2];
+        const pts = ids.map((id) =>
+          new THREE.Vector3()
+            .fromBufferAttribute(pos, id)
+            .applyMatrix4(mesh.matrixWorld),
+        );
+        const eligible = allWrap || Boolean(triMask?.[v / 3]);
+        const normal = pts[1]
+          .clone()
+          .sub(pts[0])
+          .cross(pts[2].clone().sub(pts[0]));
+        // The live renderer replaces the glass with a double-sided material.
+        const frontFacing = normal.z * sign * winding > 0;
+        if (
+          mat.name !== 'Glass' &&
+          ((mat.side === THREE.FrontSide && !frontFacing) ||
+            (mat.side === THREE.BackSide && frontFacing))
+        )
+          continue;
+        const nLen = normal.length();
+        const shade = nLen > 0 ? 0.78 + 0.22 * Math.abs(normal.z / nLen) : 1;
+        const base = colorFor(eligible, mat.name);
+        const r = Math.round(base[0] * shade),
+          g = Math.round(base[1] * shade),
+          b = Math.round(base[2] * shade);
+        const lifted = liftSideChartTriangle(
+          pts.map((p) => perimeterCoordinate(p.x, p.z, body)) as [
+            number,
+            number,
+            number,
+          ],
+          period,
+        );
+        const px = pts.map((p) => {
+          const n = projectSidePoint(frame, p.x, p.y);
+          return { x: n.x * WIDTH, y: n.y * HEIGHT };
+        });
+        const area =
+          (px[1].x - px[0].x) * (px[2].y - px[0].y) -
+          (px[1].y - px[0].y) * (px[2].x - px[0].x);
+        if (area === 0) continue;
+        const minX = Math.max(
+          0,
+          Math.floor(Math.min(px[0].x, px[1].x, px[2].x)),
+        );
+        const maxX = Math.min(
+          WIDTH - 1,
+          Math.ceil(Math.max(px[0].x, px[1].x, px[2].x)),
+        );
+        const minY = Math.max(
+          0,
+          Math.floor(Math.min(px[0].y, px[1].y, px[2].y)),
+        );
+        const maxY = Math.min(
+          HEIGHT - 1,
+          Math.ceil(Math.max(px[0].y, px[1].y, px[2].y)),
+        );
+        if (minX > maxX || minY > maxY) continue;
+        for (let y = minY; y <= maxY; y++) {
+          const cy = y + 0.5;
+          for (let x = minX; x <= maxX; x++) {
+            const cx = x + 0.5;
+            const w0 =
+              (px[2].x - px[1].x) * (cy - px[1].y) -
+              (px[2].y - px[1].y) * (cx - px[1].x);
+            const w1 =
+              (px[0].x - px[2].x) * (cy - px[2].y) -
+              (px[0].y - px[2].y) * (cx - px[2].x);
+            const w2 = area - w0 - w1;
+            if (
+              area > 0
+                ? w0 < 0 || w1 < 0 || w2 < 0
+                : w0 > 0 || w1 > 0 || w2 > 0
+            )
+              continue;
+            const l0 = w0 / area,
+              l1 = w1 / area,
+              l2 = w2 / area;
+            const z = l0 * pts[0].z + l1 * pts[1].z + l2 * pts[2].z;
+            const score = z * sign;
+            const idx = y * WIDTH + x;
+            if (score <= depth[idx]) continue;
+            depth[idx] = score;
+            const o = idx * 4;
+            guide[o] = r;
+            guide[o + 1] = g;
+            guide[o + 2] = b;
+            guide[o + 3] = 255;
+            const s = wrapS(
+              l0 * lifted[0] + l1 * lifted[1] + l2 * lifted[2],
+            );
+            mask[idx] = eligible && s >= sMin && s <= sMax ? 255 : 0;
+          }
+        }
       }
     }
-    if (geo !== mesh.geometry) geo.dispose();
   }
-  faces.sort((a, b) => sign * (a.z - b.z));
-  const svg = (mask: boolean) =>
-    `<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="800" viewBox="0 0 1000 400">${mask ? '<rect width="1000" height="400" fill="black"/>' : ''}${faces.map((f) => `<path d="${f.path}" fill="${mask ? (f.eligible ? 'white' : 'black') : f.color}"/>`).join('')}</svg>`;
+
   output[side] = {
     image:
       'data:image/png;base64,' +
       (
-        await sharp(Buffer.from(svg(false)))
+        await sharp(guide, {
+          raw: { width: WIDTH, height: HEIGHT, channels: 4 },
+        })
           .png()
           .toBuffer()
       ).toString('base64'),
     mask:
       'data:image/png;base64,' +
       (
-        await sharp(Buffer.from(svg(true)))
+        await sharp(mask, {
+          raw: { width: WIDTH, height: HEIGHT, channels: 1 },
+        })
           .png()
           .toBuffer()
       ).toString('base64'),
   };
 }
+
 fs.writeFileSync('lib/wrap-guides.json', JSON.stringify(output));
 console.log(
-  `Generated ${fs.statSync('lib/wrap-guides.json').size} bytes; same GLB, same chart, seam-clipped and occlusion-aware.`,
+  `Generated ${fs.statSync('lib/wrap-guides.json').size} bytes; same GLB, same chart, depth-tested orthographic projection shared with the editor.`,
 );

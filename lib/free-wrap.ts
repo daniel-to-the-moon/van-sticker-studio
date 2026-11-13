@@ -1,4 +1,6 @@
 /** Editable source in normalized front-to-rear, top-to-bottom side coordinates. */
+import { R13_SIDE_ASPECT } from './wrap-side-projection.ts';
+
 export type Side = 'entry' | 'driver';
 export type Point = { x: number; y: number };
 export type Kind = 'region' | 'stroke' | 'text' | 'icon' | 'image';
@@ -27,12 +29,13 @@ export type Layer = {
   entry: Art | null;
   driver: Art | null;
 };
-export type Project = { version: 1; background: string; layers: Layer[] };
+// Version 1 uses perimeter coordinates. Version 2 uses the orthographic side frame.
+export type Project = { version: 1 | 2; background: string; layers: Layer[] };
 export type History = { past: Project[]; present: Project; future: Project[] };
 export const otherSide = (side: Side): Side =>
   side === 'entry' ? 'driver' : 'entry';
 export const emptyProject = (): Project => ({
-  version: 1,
+  version: 2,
   background: '#f3eedf',
   layers: [],
 });
@@ -194,7 +197,7 @@ export function parseProject(json: string): Project {
   if (!p || typeof p !== 'object') return fail();
   const o = p as Record<string, unknown>;
   if (
-    o.version !== 1 ||
+    (o.version !== 1 && o.version !== 2) ||
     !color(o.background) ||
     !Array.isArray(o.layers) ||
     o.layers.length > 40
@@ -386,5 +389,8 @@ export function artMarkup(a: Art): string {
   return `<g transform="translate(${a.x * 1000} ${a.y * 400}) rotate(${a.rotation} ${a.w * 500} ${a.h * 200}) scale(${a.w} ${a.h})">${ink}</g>`;
 }
 export function svgDocument(p: Project, side: Side, surface = false): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="800" viewBox="0 0 1000 400"><rect width="1000" height="400" fill="${p.background}"/>${p.layers.map((l) => (l[side]?.visible ? artMarkup(surface && side === 'entry' ? { ...l[side]!, x: 1 - l[side]!.x - l[side]!.w, rotation: -l[side]!.rotation, points: l[side]!.points.map((q) => ({ x: 1 - q.x, y: q.y })) } : l[side]!) : '')).join('')}</svg>`;
+  const projectedExport = !surface && p.version === 2;
+  const height = projectedExport ? Math.round(2000 / R13_SIDE_ASPECT) : 800;
+  const aspect = projectedExport ? ' preserveAspectRatio="none"' : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="${height}" viewBox="0 0 1000 400"${aspect}><rect width="1000" height="400" fill="${p.background}"/>${p.layers.map((l) => (l[side]?.visible ? artMarkup(surface && side === 'entry' ? { ...l[side]!, x: 1 - l[side]!.x - l[side]!.w, rotation: -l[side]!.rotation, points: l[side]!.points.map((q) => ({ x: 1 - q.x, y: q.y })) } : l[side]!) : '')).join('')}</svg>`;
 }

@@ -8,7 +8,7 @@ import {
   newLayer,
   parseProject,
 } from '../lib/free-wrap.ts';
-import { parseDraft } from '../lib/wrap-draft.ts';
+import { parseDraft, serializeDraft } from '../lib/wrap-draft.ts';
 
 function fixture() {
   let record: string | null = null;
@@ -57,6 +57,21 @@ function fixture() {
 }
 const project = () =>
   addLayer(emptyProject(), newLayer('text', 'sign'), 'entry');
+
+void test('upgrades pristine legacy autosaves without altering existing artwork', () => {
+  const f = fixture();
+  const legacyBlank = { ...emptyProject(), version: 1 as const };
+  f.record = serializeDraft(legacyBlank);
+  assert.deepEqual(f.draft.restore(), emptyProject());
+
+  for (const legacy of [
+    { ...legacyBlank, background: '#334455' },
+    { ...project(), version: 1 as const },
+  ]) {
+    f.record = serializeDraft(legacy);
+    assert.deepEqual(f.draft.restore(), legacy);
+  }
+});
 
 void test('quota failure keeps the old draft and explicit retry saves the current draft', () => {
   const f = fixture(),

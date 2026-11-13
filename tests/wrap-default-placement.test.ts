@@ -14,6 +14,10 @@ import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VehicleWrapEditor } from '../lib/vehicle-wrap-editor.ts';
 import {
+  createSideProjection,
+  projectSidePoint,
+} from '../lib/wrap-side-projection.ts';
+import {
   circumference,
   constrainDecal,
   perimeterCoordinate,
@@ -359,6 +363,33 @@ void describe('entry-side default placement avoids the closed entry door', { con
         rectHitsDoor(afterReset.placements[0], png.aspect, before.entryDoorSpan!),
         false,
       );
+    } finally {
+      cleanup();
+    }
+  });
+
+  void test('the R13 entry door keeps its closed-pose side projection when opened', async () => {
+    const scene = await loadVehicle();
+    const { cleanup } = mount(scene);
+    try {
+      const rig = scene.getObjectByName('WebRig_EntryDoor');
+      const door = scene.getObjectByName('RV_WebRig_EntryDoor_Wrap_Entry');
+      assert.ok(rig && door instanceof Mesh);
+      const positions = door.geometry.getAttribute('position');
+      const projection = door.geometry.getAttribute('aDesignProjection');
+      assert.equal(projection.count, positions.count);
+      const position = new Vector3().fromBufferAttribute(positions, 0);
+      const closed = position.clone().applyMatrix4(door.matrixWorld);
+      const frame = createSideProjection(BODY);
+      const expected = projectSidePoint(frame, closed.x, closed.y);
+      near(projection.getX(0), expected.x, 1e-6);
+      near(projection.getY(0), expected.y, 1e-6);
+      rig.rotation.y = Math.PI / 2;
+      scene.updateMatrixWorld(true);
+      const opened = position.clone().applyMatrix4(door.matrixWorld);
+      assert.ok(closed.distanceTo(opened) > 0.05);
+      near(projection.getX(0), expected.x, 1e-6);
+      near(projection.getY(0), expected.y, 1e-6);
     } finally {
       cleanup();
     }

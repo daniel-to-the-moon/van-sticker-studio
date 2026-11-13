@@ -1,4 +1,4 @@
-import { parseProject, type Project } from './free-wrap.ts';
+import { emptyProject, parseProject, type Project } from './free-wrap.ts';
 import { parseDraft, serializeDraft } from './wrap-draft.ts';
 
 export type DraftStatus = 'loading' | 'saved' | 'pending' | 'error' | 'blocked';
@@ -43,7 +43,12 @@ export class DraftPersistence {
   restore(): Project | null {
     try {
       const saved = this.storage.getItem(this.key);
-      const project = saved === null ? null : parseDraft(saved);
+      let project = saved === null ? null : parseDraft(saved);
+      if (project?.version === 1 && project.layers.length === 0) {
+        const blank = emptyProject();
+        // The old editor autosaved on first visit, even before any artwork was added.
+        if (project.background === blank.background) project = blank;
+      }
       this.lastWritten = saved;
       this.latest = project;
       this.blocked = false;

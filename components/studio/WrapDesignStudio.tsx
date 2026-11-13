@@ -60,8 +60,10 @@ import {
 } from '@/lib/free-wrap';
 import './wrap-design.css';
 import guides from '@/lib/wrap-guides.json';
+import type legacyGuides from '@/lib/wrap-legacy-guides.json';
 import { DraftPersistence, type DraftStatus } from '@/lib/draft-persistence';
 const STORE = 'mxgarage-free-wrap-v1';
+let legacyGuideLoad: Promise<typeof legacyGuides> | undefined;
 type Tool = 'select' | 'region' | 'stroke' | 'nodes' | 'pan';
 type Gesture = {
   id: number;
@@ -115,6 +117,7 @@ function IconButton({
 
 export default function WrapDesignStudio() {
   const [h, setH] = useState<History>(() => history(emptyProject()));
+  const [legacyGuide, setLegacyGuide] = useState<typeof legacyGuides | null>();
   const [hydrated, setHydrated] = useState(false),
     [saveStatus, setSaveStatus] = useState<DraftStatus>('loading');
   const draft = useRef<DraftPersistence | null>(null);
@@ -148,6 +151,29 @@ export default function WrapDesignStudio() {
   const project = preview ?? h.present,
     layer = project.layers.find((l) => l.id === selected),
     art = layer?.[side];
+  const legacy = project.version === 1;
+  const sideGuide = legacy ? legacyGuide?.[side] : guides[side];
+  useEffect(() => {
+    if (!legacy) return;
+    let active = true;
+    legacyGuideLoad ??= import('@/lib/wrap-legacy-guides.json')
+      .then((module) => module.default)
+      .catch((error: unknown) => {
+        legacyGuideLoad = undefined;
+        throw error;
+      });
+    void legacyGuideLoad.then(
+      (guide) => {
+        if (active) setLegacyGuide(guide);
+      },
+      () => {
+        if (active) setLegacyGuide(null);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [legacy]);
   useEffect(() => {
     let active = true;
     const persistence = new DraftPersistence(
@@ -640,112 +666,123 @@ export default function WrapDesignStudio() {
           )}
           {mode === 'edit' ? (
             <div className="wrap-canvas-shell">
-              <button
-                className="wrap-canvas-focus"
-                aria-label="贴画画布；方向键移动，Delete 删除，Esc 取消"
-                type="button"
-              >
-                <svg
-                  ref={board}
-                  className="wrap-canvas"
-
-                  aria-label={`车身贴画画布：${labels[tool]}，车头在左`}
-                  preserveAspectRatio="none"
-                  viewBox={`${500 - 500 / zoom + pan.x} ${200 - 200 / zoom + pan.y} ${1000 / zoom} ${400 / zoom}`}
-                  onPointerDown={onDown}
-                  onPointerMove={onMove}
-                  onPointerUp={onUp}
-                  onPointerCancel={(e) => {
-                    pointers.current.delete(e.pointerId);
-                    cancel();
-                  }}
-                  onLostPointerCapture={(e) => {
-                    pointers.current.delete(e.pointerId);
-                    if (gesture.current?.id === e.pointerId) cancel();
-                  }}
-                  onWheel={(e) => {
-                    setZoom((z) => clamp(z * (e.deltaY > 0 ? 0.9 : 1.1), 1, 5));
-                  }}
+              {!sideGuide && (
+                <output>
+                  {legacyGuide === null ? '旧版底图加载失败，请刷新重试。' : '正在加载旧版底图…'}
+                </output>
+              )}
+              {sideGuide && (
+                <button
+                  className="wrap-canvas-focus"
+                  aria-label="贴画画布；方向键移动，Delete 删除，Esc 取消"
+                  type="button"
                 >
-                  <defs>
-                    <mask
-                      id="side-guide"
-                      maskUnits="userSpaceOnUse"
-                      x="0"
-                      y="0"
-                      width="1000"
-                      height="400"
-                    >
-                      <image
-                        href={guides[side].mask}
+                  <svg
+                    ref={board}
+                    className="wrap-canvas"
+
+                    aria-label={`车身贴画画布：${labels[tool]}，车头在左`}
+                    preserveAspectRatio="none"
+                    viewBox={`${500 - 500 / zoom + pan.x} ${200 - 200 / zoom + pan.y} ${1000 / zoom} ${400 / zoom}`}
+                    onPointerDown={onDown}
+                    onPointerMove={onMove}
+                    onPointerUp={onUp}
+                    onPointerCancel={(e) => {
+                      pointers.current.delete(e.pointerId);
+                      cancel();
+                    }}
+                    onLostPointerCapture={(e) => {
+                      pointers.current.delete(e.pointerId);
+                      if (gesture.current?.id === e.pointerId) cancel();
+                    }}
+                    onWheel={(e) => {
+                      setZoom((z) => clamp(z * (e.deltaY > 0 ? 0.9 : 1.1), 1, 5));
+                    }}
+                  >
+                    <defs>
+                      <mask
+                        id="side-guide"
+                        maskUnits="userSpaceOnUse"
+                        x="0"
+                        y="0"
                         width="1000"
                         height="400"
-                      />
-                    </mask>
-                  </defs>
-                  <image
-                    href={guides[side].image}
-                    width="1000"
-                    height="400"
-                    pointerEvents="none"
-                  />
-                  <g mask="url(#side-guide)">
-                    <rect width="1000" height="400" fill={project.background} />
-                    {project.layers.map(
-                      (l) =>
-                        l[side]?.visible && (
-                          <g
-                            key={l.id}
-                            data-layer={l.id}
-                            dangerouslySetInnerHTML={{
-                              __html: artMarkup(l[side]!),
-                            }}
-                          />
-                        ),
-                    )}
-                  </g>
-                  {art && art.visible && (
-                    <rect
+                      >
+                        <image
+                          href={sideGuide.mask}
+                          width="1000"
+                          height="400"
+                          preserveAspectRatio="none"
+                        />
+                      </mask>
+                    </defs>
+                    <image
+                      href={sideGuide.image}
+                      width="1000"
+                      height="400"
+                      preserveAspectRatio="none"
                       pointerEvents="none"
-                      x={art.x * 1000}
-                      y={art.y * 400}
-                      width={art.w * 1000}
-                      height={art.h * 400}
-                      fill="none"
-                      stroke="#286d48"
-                      strokeWidth={2 / zoom}
-                      strokeDasharray="5 4"
-                      transform={`rotate(${art.rotation} ${(art.x + art.w / 2) * 1000} ${(art.y + art.h / 2) * 400})`}
                     />
-                  )}
-                  {tool === 'nodes' &&
-                    art &&
-                    art.rotation === 0 &&
-                    art.points.map((p, i) => (
-                      <circle
-                        key={i}
-                        data-node={i}
-                        cx={(art.x + p.x * art.w) * 1000}
-                        cy={(art.y + p.y * art.h) * 400}
-                        r={9 / zoom}
-                        fill="white"
+                    <g mask="url(#side-guide)">
+                      <rect width="1000" height="400" fill={project.background} />
+                      {project.layers.map(
+                        (l) =>
+                          l[side]?.visible && (
+                            <g
+                              key={l.id}
+                              data-layer={l.id}
+                              dangerouslySetInnerHTML={{
+                                __html: artMarkup(l[side]!),
+                              }}
+                            />
+                          ),
+                      )}
+                    </g>
+                    {art && art.visible && (
+                      <rect
+                        pointerEvents="none"
+                        x={art.x * 1000}
+                        y={art.y * 400}
+                        width={art.w * 1000}
+                        height={art.h * 400}
+                        fill="none"
                         stroke="#286d48"
-                        strokeWidth="2"
+                        strokeWidth={2 / zoom}
+                        strokeDasharray="5 4"
+                        transform={`rotate(${art.rotation} ${(art.x + art.w / 2) * 1000} ${(art.y + art.h / 2) * 400})`}
                       />
-                    ))}
-                  {line.length > 0 && (
-                    <path
-                      d={pathData(line)}
-                      fill="none"
-                      stroke={color}
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                    />
-                  )}
-                </svg>
-              </button>
+                    )}
+                    {tool === 'nodes' &&
+                      art &&
+                      art.rotation === 0 &&
+                      art.points.map((p, i) => (
+                        <circle
+                          key={i}
+                          data-node={i}
+                          cx={(art.x + p.x * art.w) * 1000}
+                          cy={(art.y + p.y * art.h) * 400}
+                          r={9 / zoom}
+                          fill="white"
+                          stroke="#286d48"
+                          strokeWidth="2"
+                        />
+                      ))}
+                    {line.length > 0 && (
+                      <path
+                        d={pathData(line)}
+                        fill="none"
+                        stroke={color}
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                      />
+                    )}
+                  </svg>
+                </button>
+              )}
               <div className="wrap-canvas-foot">
-                <span>侧面贴画展开图 · 门窗区域保留</span>
+                <span>
+                  {legacy ? '旧版草稿 · 保留原贴画位置' : '侧面贴画展开图 · 门窗区域保留'}
+                </span>
                 <div>
                   {
                     <IconButton
