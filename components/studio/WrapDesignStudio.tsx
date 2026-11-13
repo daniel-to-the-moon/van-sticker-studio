@@ -169,6 +169,7 @@ export default function WrapDesignStudio() {
   const legacySide = legacy && isSideFace(side);
   const sideGuide = legacySide ? legacyGuide?.[side] : guides[side];
   const sketchInk = legacySide ? undefined : guides[side].ink;
+  const sketchWash = legacySide ? undefined : guides[side].wash;
   const faceLayers = project.layers.filter((item) => item[side]);
   useEffect(() => {
     if (!legacy) return;
@@ -764,8 +765,12 @@ export default function WrapDesignStudio() {
                       preserveAspectRatio="none"
                       pointerEvents="none"
                     />
+                    <rect width="1000" height="400" mask="url(#side-guide)" fill={project.background} opacity={legacySide ? 1 : 0.78} />
+                    {sketchWash && (
+                      <image href={sketchWash} width="1000" height="400"
+                        preserveAspectRatio="none" pointerEvents="none" />
+                    )}
                     <g mask="url(#side-guide)">
-                      <rect width="1000" height="400" fill={project.background} opacity={legacySide ? 1 : 0.78} />
                       {project.layers.map(
                         (l) =>
                           l[side]?.visible && (

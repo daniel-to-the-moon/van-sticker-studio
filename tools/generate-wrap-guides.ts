@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { findFrontWrapTransitions } from '../lib/wrap-eligibility.ts';
 import { perimeterCoordinate, circumference } from '../lib/wrap-layout.ts';
-import { sketchInk } from './wrap-sketch-ink.ts';
+import { sketchInk, sketchWash } from './wrap-sketch-ink.ts';
 import {
   createSideProjection,
   createEndProjection,
@@ -17,7 +17,7 @@ import {
 const sharp = rasterizer as (
   input: Buffer,
   options: { raw: { width: number; height: number; channels: 1 | 4 } },
-) => { png: () => { toBuffer: () => Promise<Buffer> } };
+) => { png: (options?: { palette: boolean; colours: number; dither: number }) => { toBuffer: () => Promise<Buffer> } };
 
 const bytes = fs.readFileSync('public/model/mxgarage-rv.glb'),
   meta = JSON.parse(
@@ -208,6 +208,11 @@ for (const [face, axis, sign] of [
     }
   }
 
+  const sketchPng = async (pixels: Buffer) =>
+    'data:image/png;base64,' +
+    (await sharp(pixels, { raw: { width: WIDTH, height: HEIGHT, channels: 4 } })
+      .png({ palette: true, colours: 96, dither: 0 })
+      .toBuffer()).toString('base64');
   output[face] = {
     image:
       'data:image/png;base64,' +
@@ -227,13 +232,8 @@ for (const [face, axis, sign] of [
           .png()
           .toBuffer()
       ).toString('base64'),
-    ink:
-      'data:image/png;base64,' +
-      (
-        await sharp(sketchInk(material, WIDTH, HEIGHT), {
-          raw: { width: WIDTH, height: HEIGHT, channels: 4 },
-        }).png().toBuffer()
-      ).toString('base64'),
+    wash: await sketchPng(sketchWash(material, depth, WIDTH, HEIGHT)),
+    ink: await sketchPng(sketchInk(material, WIDTH, HEIGHT)),
   };
 }
 
