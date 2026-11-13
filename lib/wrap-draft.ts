@@ -5,7 +5,7 @@ const MAX_ASSETS = 80;
 const MAX_IMAGE_CHARACTERS = 2_000_000;
 type StoredArt = Omit<Art, 'src'> & { src: string | { asset: number } };
 
-/** Local-only encoding; portable exports continue to use the plain v1 project. */
+/** Local-only encoding; portable exports keep the plain project format. */
 export function serializeDraft(project: Project): string {
   const validated = parseProject(JSON.stringify(project));
   const assets: string[] = [];
@@ -43,7 +43,7 @@ function invalid(): never {
   throw new Error('无法读取这个草稿：版本或内容不受支持');
 }
 
-/** Reads both legacy plain v1 drafts and resource-deduplicated local drafts. */
+/** Reads plain projects and resource-deduplicated local drafts. */
 export function parseDraft(json: string): Project {
   if (json.length > MAX_CHARACTERS) throw new Error('文件超过 8 MB');
   const stored: unknown = JSON.parse(json);

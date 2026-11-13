@@ -27,12 +27,13 @@ export type Layer = {
   entry: Art | null;
   driver: Art | null;
 };
-export type Project = { version: 1; background: string; layers: Layer[] };
+// Version 1 uses perimeter coordinates. Version 2 uses the orthographic side frame.
+export type Project = { version: 1 | 2; background: string; layers: Layer[] };
 export type History = { past: Project[]; present: Project; future: Project[] };
 export const otherSide = (side: Side): Side =>
   side === 'entry' ? 'driver' : 'entry';
 export const emptyProject = (): Project => ({
-  version: 1,
+  version: 2,
   background: '#f3eedf',
   layers: [],
 });
@@ -194,7 +195,7 @@ export function parseProject(json: string): Project {
   if (!p || typeof p !== 'object') return fail();
   const o = p as Record<string, unknown>;
   if (
-    o.version !== 1 ||
+    (o.version !== 1 && o.version !== 2) ||
     !color(o.background) ||
     !Array.isArray(o.layers) ||
     o.layers.length > 40

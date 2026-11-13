@@ -152,6 +152,7 @@ export class VehicleWrapEditor {
       uDesignEntry: { value: null },
       uDesignDriver: { value: null },
       uHasDesign: { value: 0 },
+      uUseSideProjection: { value: 0 },
       uDesignSize: {
         value: new THREE.Vector3(
           this.body.length,
@@ -192,9 +193,14 @@ export class VehicleWrapEditor {
     const designVarying = projectedDesign ? 'varying vec2 vDesignProjection;' : '';
     const designAttribute = projectedDesign ? 'attribute vec2 aDesignProjection;' : '';
     const designAssignment = projectedDesign ? 'vDesignProjection = aDesignProjection;' : '';
-    const designY = projectedDesign ? 'vDesignProjection.y' : '1.-vWrapCoord.y/uDesignSize.z';
-    const designEntryX = projectedDesign ? '1.-vDesignProjection.x' : 's/uDesignSize.x';
-    const designDriverX = projectedDesign ? 'vDesignProjection.x' : '(s-uDesignSize.x-uDesignSize.y)/uDesignSize.x';
+    const legacyY = '1.-vWrapCoord.y/uDesignSize.z';
+    const legacyEntryX = 's/uDesignSize.x';
+    const legacyDriverX = '(s-uDesignSize.x-uDesignSize.y)/uDesignSize.x';
+    const projectionOr = (projected: string, legacy: string) =>
+      projectedDesign ? `mix(${legacy},${projected},uUseSideProjection)` : legacy;
+    const designY = projectionOr('vDesignProjection.y', legacyY);
+    const designEntryX = projectionOr('1.-vDesignProjection.x', legacyEntryX);
+    const designDriverX = projectionOr('vDesignProjection.x', legacyDriverX);
     for (const material of materials) {
       material.onBeforeCompile = (shader) => {
         Object.assign(shader.uniforms, this.uniforms);
@@ -210,7 +216,7 @@ export class VehicleWrapEditor {
           uniform sampler2D uDecalMap; uniform float uHasDecal, uDecalAspect, uDecalPeriod, uDecalActive, uAntTime, uWrapReveal;
           uniform float uPaletteEnabled;
           uniform sampler2D uDesignEntry, uDesignDriver;
-          uniform float uHasDesign; uniform vec3 uDesignSize;
+          uniform float uHasDesign, uUseSideProjection; uniform vec3 uDesignSize;
           uniform vec3 uPaletteWhite, uPaletteAccent, uPaletteTrim;
           uniform vec2 uPaletteBand;
           uniform vec3 uDecalPlacements[2];\n` + shader.fragmentShader;
@@ -262,7 +268,7 @@ export class VehicleWrapEditor {
       };
       material.customProgramCacheKey = () =>
         projectedDesign
-          ? 'mxgarage-continuous-wrap-editor-v5-projected-design'
+          ? 'mxgarage-continuous-wrap-editor-v6-versioned-design'
           : 'mxgarage-continuous-wrap-editor-v4-design';
       material.needsUpdate = true;
     }
@@ -328,6 +334,7 @@ export class VehicleWrapEditor {
     this.designTextures = textures;
     this.uniforms.uDesignEntry.value = textures[0];
     this.uniforms.uDesignDriver.value = textures[1];
+    this.uniforms.uUseSideProjection.value = project.version === 2 ? 1 : 0;
     this.uniforms.uHasDesign.value = 1;
   }
   setPalette(palette: VehiclePalette | null) {

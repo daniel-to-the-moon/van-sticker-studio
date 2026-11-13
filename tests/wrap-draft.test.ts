@@ -18,7 +18,7 @@ function imageProject(src = image) {
 }
 
 void test('reads existing plain version-one drafts without changing their data', () => {
-  const p = addLayer(emptyProject(), newLayer('text', 'sign'), 'driver');
+  const p = addLayer({ ...emptyProject(), version: 1 }, newLayer('text', 'sign'), 'driver');
   assert.deepEqual(parseDraft(JSON.stringify(p)), p);
 });
 
@@ -61,7 +61,7 @@ void test('round trips split sides, independent images, null sides, and linked f
 });
 
 void test('local encoding does not change portable plain version-one exports', () => {
-  const p = parseDraft(serializeDraft(imageProject()));
+  const p = parseDraft(serializeDraft({ ...imageProject(), version: 1 }));
   assert.deepEqual(parseProject(JSON.stringify(p)), p);
   assert.equal(p.version, 1);
   assert.equal(p.layers[0].entry!.src, image);
@@ -157,4 +157,16 @@ void test('expanded projects still enforce linked equality and existing geometry
   const duplicate = envelope();
   duplicate.project.layers.push(duplicate.project.layers[0]);
   assert.throws(() => parseDraft(JSON.stringify(duplicate)));
+});
+
+void test('new R13 drafts use a distinct projection from saved perimeter drafts', () => {
+  const legacy = { ...imageProject(), version: 1 as const };
+  legacy.layers[0].entry!.x = legacy.layers[0].driver!.x = 0.929;
+  assert.deepEqual(parseDraft(JSON.stringify(legacy)), legacy);
+  assert.deepEqual(parseDraft(serializeDraft(legacy)), legacy);
+
+  const projected = imageProject();
+  assert.equal(projected.version, 2);
+  assert.deepEqual(parseProject(JSON.stringify(projected)), projected);
+  assert.deepEqual(parseDraft(serializeDraft(projected)), projected);
 });
