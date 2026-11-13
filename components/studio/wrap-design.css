@@ -770,7 +770,7 @@
   z-index: 2;
   display: grid;
   place-items: center;
-  background: #f7f0e1 center / 92% 84% no-repeat;
+  background: #f7f0e1 center / contain no-repeat;
   pointer-events: none;
   transition: opacity 560ms ease, transform 560ms cubic-bezier(.22,.7,.3,1), visibility 560ms;
 }
