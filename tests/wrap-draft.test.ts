@@ -185,3 +185,11 @@ void test('front and rear artwork round trips without mirroring to another face'
     ...edit, layers: [{ ...edit.layers[0], linked: true }],
   })));
 });
+
+void test('a new driver-side marker uses the supplied drawing, not the template copy', () => {
+  const marker = newLayer('stroke', 'driver-marker');
+  marker.entry!.points = [{ x: 0.4, y: 0.5 }, { x: 0.6, y: 0.5 }];
+  const p = addLayer(emptyProject(), marker, 'driver', false);
+  assert.deepEqual(p.layers[0].driver?.points, marker.entry!.points);
+  assert.equal(p.layers[0].entry, null);
+});

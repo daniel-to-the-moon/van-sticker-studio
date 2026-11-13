@@ -100,7 +100,7 @@ export function addLayer(
 ): Project {
   if (p.layers.length >= 40)
     throw new Error('最多 40 个图层，请先删除不用的图层');
-  const art = structuredClone(layer[side] ?? layer.entry ?? layer.driver ?? layer.front ?? layer.rear ?? null);
+  const art = structuredClone(layer.entry ?? layer.driver ?? layer[side] ?? null);
   const item: Layer = {
     id: layer.id,
     name: layer.name,
