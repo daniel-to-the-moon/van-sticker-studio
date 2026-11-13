@@ -712,6 +712,7 @@ export default function WrapDesignStudio() {
                           href={sideGuide.mask}
                           width="1000"
                           height="400"
+                          preserveAspectRatio="none"
                         />
                       </mask>
                     </defs>
@@ -719,6 +720,7 @@ export default function WrapDesignStudio() {
                       href={sideGuide.image}
                       width="1000"
                       height="400"
+                      preserveAspectRatio="none"
                       pointerEvents="none"
                     />
                     <g mask="url(#side-guide)">

@@ -7,6 +7,9 @@ export type SideFrame = {
   height: number;
 };
 
+/** R13 wrap chart spans in public/model/motion_metadata.json. */
+export const R13_SIDE_ASPECT = 5.8 / 3.05;
+
 /** Orthographic frame with 5% margin on every side; nose stays on the left for both sides. */
 export function createSideProjection(body: SideBody): SideFrame {
   return {

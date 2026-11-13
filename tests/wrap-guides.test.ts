@@ -54,6 +54,15 @@ void test('side guides belong to the same unchanged production model', () => {
   assert.equal(guides.aspect, body.length / body.height);
 });
 
+void test('both side images and masks have the R13 physical aspect ratio', async () => {
+  for (const side of sides) {
+    for (const asset of ['image', 'mask']) {
+      const { info: { width, height } } = await decode(guides[side][asset]);
+      assert.equal(height, Math.round(width * frame.height / frame.width));
+    }
+  }
+});
+
 void test('both actual R13 side silhouettes have transparent margin on all four edges', async () => {
   for (const side of sides) {
     const { data, info } = await decode(guides[side].image);

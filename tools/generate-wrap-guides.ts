@@ -45,7 +45,7 @@ const transitions = findFrontWrapTransitions(meshes);
 const frame = createSideProjection(body);
 const period = circumference(body);
 const WIDTH = 2000,
-  HEIGHT = 800;
+  HEIGHT = Math.round(WIDTH * frame.height / frame.width);
 const wrapS = (n: number) => ((n % period) + period) % period;
 const colorFor = (
   eligible: boolean,

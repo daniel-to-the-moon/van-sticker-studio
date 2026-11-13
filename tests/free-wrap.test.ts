@@ -91,6 +91,17 @@ void test('SVG escapes text and never mirrors opposite-side text', () => {
   assert.ok(a.includes('&lt;script&gt;'));
   assert.ok(!b.includes('scale(-1'));
 });
+void test('projected SVG download uses the R13 display ratio and keeps texture SVG dimensions', () => {
+  const projected = emptyProject();
+  const legacy = { ...projected, version: 1 as const };
+  const svg = svgDocument(projected, 'entry');
+  const dimensions = svg.match(/<svg[^>]+ width="(\d+)" height="(\d+)"/);
+  assert.ok(dimensions);
+  assert.ok(Math.abs(Number(dimensions[1]) / Number(dimensions[2]) - 5.8 / 3.05) < 0.001);
+  assert.ok(svg.includes('preserveAspectRatio="none"'));
+  assert.match(svgDocument(legacy, 'entry'), /width="2000" height="800"/);
+  assert.match(svgDocument(projected, 'entry', true), /width="2000" height="800"/);
+});
 void test('PC shortcuts work on canvas and never consume text-field editing', () => {
   assert.equal(shortcut('z', true, false, false), 'undo');
   assert.equal(shortcut('z', true, true, false), 'redo');
