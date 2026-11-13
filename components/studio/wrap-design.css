@@ -713,6 +713,7 @@
   min-height: 56px;
   border-radius: 12px;
 }
+.wrap-tools button span { white-space: nowrap; }
 .wrap-tools svg {
   box-sizing: content-box;
   width: 22px;
@@ -789,14 +790,19 @@
   .wrap-tools { width: 72px; }
 }
 @media (max-width: 650px) {
+  .wrap-layout { padding-bottom: 0; }
   .wrap-tools {
+    position: relative;
+    order: -1;
+    z-index: auto;
     width: 100%;
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-start;
     gap: 5px;
     padding: 4px 10px 9px;
-    background: transparent;
+    background: #ebe8e1;
+    border-top: 0;
     overflow: visible;
   }
   .wrap-tools button, .wrap-tool-upload { width: 66px; min-height: 51px; }

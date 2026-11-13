@@ -781,7 +781,7 @@ export default function WrapDesignStudio() {
                     </g>
                     {sketchInk && <image href={sketchInk} width="1000" height="400"
                       preserveAspectRatio="none" pointerEvents="none" />}
-                    {art && art.visible && (
+                    {art && art.visible && tool !== 'stroke' && tool !== 'region' && (
                       <rect
                         pointerEvents="none"
                         x={art.x * 1000}
