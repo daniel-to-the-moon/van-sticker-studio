@@ -684,3 +684,131 @@
     overflow: hidden;
   }
 }
+
+/* A paper work surface inside the studio's tool chrome. */
+.wrap-workspace {
+  --ink: #292723;
+  --muted: #696359;
+  --line: #e4dfd5;
+  --accent: #395d54;
+  background: #ebe8e1;
+  box-shadow: 0 12px 48px #4c403323, inset 0 1px 0 #fff9;
+}
+.wrap-header {
+  background: linear-gradient(#f7f5f0, #edebe4);
+  border-bottom: 1px solid #dcd7cc;
+}
+.wrap-file { color: #615a4f; }
+.wrap-layout { grid-template-columns: 78px minmax(0, 1fr) 250px; padding-top: 10px; }
+.wrap-stage { background: #f9f7f1; border: 1px solid #e1dbcf; overflow: hidden; }
+.wrap-inspector {
+  background: #f8f6f0;
+  border: 1px solid #e1dbcf;
+  padding: 20px 18px;
+}
+.wrap-inspector h1 { font-size: 17px; font-weight: 650; }
+.wrap-tools { width: 78px; gap: 6px; padding-inline: 7px; }
+.wrap-tools button, .wrap-tool-upload {
+  width: 62px;
+  min-height: 56px;
+  border-radius: 12px;
+}
+.wrap-tools svg {
+  box-sizing: content-box;
+  width: 22px;
+  height: 22px;
+  padding: 3px;
+  border-radius: 7px;
+  color: #524c43;
+  background: linear-gradient(#fffdf9, #e6e0d5);
+  box-shadow: inset 0 1px 0 #fff, 0 1px 2px #5143322b;
+  transition: transform 160ms ease;
+}
+.wrap-tools button[aria-pressed='true'] {
+  color: #243f36;
+  background: #dce7dd;
+  box-shadow: inset 0 0 0 1px #b8cdbd;
+}
+.wrap-tools button[aria-pressed='true'] svg {
+  color: #2e584a;
+  background: linear-gradient(#eaf6ec, #a8c7b4);
+  transform: rotate(-7deg);
+}
+.wrap-tools button:active svg { transform: translateY(1px) scale(.94); }
+.wrap-more-tools:not([hidden]) { display: grid; gap: 6px; }
+.wrap-more-tools[hidden] { display: none; }
+.wrap-stagebar { padding: 18px 24px 12px; }
+.wrap-segment { background: #ece8df; gap: 2px; }
+.wrap-segment button { padding-inline: 15px; }
+.wrap-segment button[aria-pressed='true'] { background: #fffcf5; }
+.wrap-workspace .wrap-primary {
+  background: linear-gradient(#3f6658, #294a3f);
+  border: 1px solid #294a3f;
+  box-shadow: inset 0 1px 0 #ffffff36, 0 2px 5px #253a3926;
+}
+.wrap-workspace .wrap-primary:hover { background: #345b4c; }
+.wrap-canvas-shell {
+  margin: 2px 13px 13px;
+  border: 1px solid #e3dbcc;
+  border-radius: 10px;
+  background:
+    radial-gradient(ellipse at 48% 35%, #fffdf5 4%, transparent 70%),
+    repeating-linear-gradient(104deg, #f5efe2 0 2px, #f6f0e4 2px 5px);
+  box-shadow: inset 0 1px 3px #55432f12, 0 1px 0 #fff;
+}
+.wrap-canvas[data-tool='select'] { cursor: default; }
+.wrap-canvas[data-tool='stroke'] { cursor: crosshair; }
+.wrap-canvas[data-tool='pan'] { cursor: grab; }
+.wrap-canvas[data-tool='pan']:active { cursor: grabbing; }
+.wrap-workspace svg.wrap-canvas:is([data-face='front'], [data-face='rear']) {
+  aspect-ratio: 2.22 / 3.05;
+  max-width: min(90%, calc(max(230px, 100dvh - 282px) * 2.22 / 3.05));
+}
+.wrap-paper-transition {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  background: #f7f0e1 center / 92% 84% no-repeat;
+  pointer-events: none;
+  transition: opacity 560ms ease, transform 560ms cubic-bezier(.22,.7,.3,1), visibility 560ms;
+}
+.wrap-preview[data-ready='true'] .wrap-paper-transition {
+  opacity: 0;
+  transform: perspective(900px) rotateX(9deg) scale(.96);
+  visibility: hidden;
+}
+.wrap-preview-views { z-index: 3; }
+.wrap-inspector .wrap-swatches button {
+  border: 1px solid #0002;
+  box-shadow: inset 0 1px 2px #fff8, 0 1px 2px #0002;
+}
+@media (max-width: 900px) {
+  .wrap-layout { grid-template-columns: 72px minmax(0, 1fr) 210px; }
+  .wrap-tools { width: 72px; }
+}
+@media (max-width: 650px) {
+  .wrap-tools {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 5px;
+    padding: 4px 10px 9px;
+    background: transparent;
+    overflow: visible;
+  }
+  .wrap-tools button, .wrap-tool-upload { width: 66px; min-height: 51px; }
+  .wrap-more-tools:not([hidden]) { display: flex; flex: 1 0 100%; flex-wrap: wrap; gap: 5px; }
+  .wrap-stagebar { padding: 12px 10px 8px; gap: 5px; flex-wrap: wrap; }
+  .wrap-segment button { min-height: 33px; padding-inline: 10px; }
+  .wrap-canvas-shell { margin: 0 7px 7px; padding: 14px 3% 48px; }
+  .wrap-canvas-foot { left: 10px; right: 8px; bottom: 9px; }
+  .wrap-workspace svg.wrap-canvas:is([data-face='front'], [data-face='rear']) { max-width: 48%; }
+  .wrap-inspector { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wrap-paper-transition, .wrap-tools svg { transition: none; }
+  .wrap-preview[data-ready='true'] .wrap-paper-transition { transform: none; }
+}

@@ -6,8 +6,10 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { findFrontWrapTransitions } from '../lib/wrap-eligibility.ts';
 import { perimeterCoordinate, circumference } from '../lib/wrap-layout.ts';
+import { sketchInk } from './wrap-sketch-ink.ts';
 import {
   createSideProjection,
+  createEndProjection,
   projectSidePoint,
   liftSideChartTriangle,
 } from '../lib/wrap-side-projection.ts';
@@ -44,8 +46,7 @@ const body = {
 const transitions = findFrontWrapTransitions(meshes);
 const frame = createSideProjection(body);
 const period = circumference(body);
-const WIDTH = 2000,
-  HEIGHT = Math.round(WIDTH * frame.height / frame.width);
+const endFrame = createEndProjection(body);
 const wrapS = (n: number) => ((n % period) + period) % period;
 const colorFor = (
   eligible: boolean,
@@ -66,16 +67,22 @@ const output: Record<string, unknown> = {
   aspect: body.length / body.height,
 };
 
-for (const [side, sign] of [
-  ['entry', -1],
-  ['driver', 1],
+for (const [face, axis, sign] of [
+  ['entry', 'z', -1],
+  ['driver', 'z', 1],
+  ['front', 'x', -1],
+  ['rear', 'x', 1],
 ] as const) {
+  const endView = axis === 'x';
+  const view = endView ? endFrame : frame;
+  const WIDTH = endView ? 880 : 2000;
+  const HEIGHT = Math.round(WIDTH * view.height / view.width);
   const guide = Buffer.alloc(WIDTH * HEIGHT * 4, 0);
   const mask = Buffer.alloc(WIDTH * HEIGHT, 0);
+  const material = new Uint8Array(WIDTH * HEIGHT);
   const depth = new Float64Array(WIDTH * HEIGHT).fill(-Infinity);
-  const sMin = side === 'entry' ? 0 : body.length + body.width;
-  const sMax =
-    side === 'entry' ? body.length : 2 * body.length + body.width;
+  const sMin = { entry: 0, front: body.length, driver: body.length + body.width, rear: 2 * body.length + body.width }[face];
+  const sMax = sMin + (endView ? body.width : body.length);
 
   for (const mesh of meshes) {
     const geo = mesh.geometry,
@@ -93,6 +100,11 @@ for (const [side, sign] of [
     for (const group of groups) {
       const mat = mats[Math.min(group.materialIndex ?? 0, mats.length - 1)];
       if (!mat?.visible || /Interior|Fabric/.test(mat.name)) continue;
+      const sketchMaterial = /Glass|Optic/.test(mat.name)
+        ? 2
+        : /Rubber|Tire|Graphite|Black/.test(mat.name)
+          ? 3
+          : /Chrome/.test(mat.name) ? 4 : 1;
       const end = Math.min(group.start + group.count, total);
       for (let v = group.start; v + 2 < end; v += 3) {
         const ids = index
@@ -109,7 +121,7 @@ for (const [side, sign] of [
           .sub(pts[0])
           .cross(pts[2].clone().sub(pts[0]));
         // The live renderer replaces the glass with a double-sided material.
-        const frontFacing = normal.z * sign * winding > 0;
+        const frontFacing = normal[axis] * sign * winding > 0;
         if (
           mat.name !== 'Glass' &&
           ((mat.side === THREE.FrontSide && !frontFacing) ||
@@ -117,7 +129,7 @@ for (const [side, sign] of [
         )
           continue;
         const nLen = normal.length();
-        const shade = nLen > 0 ? 0.78 + 0.22 * Math.abs(normal.z / nLen) : 1;
+        const shade = nLen > 0 ? 0.78 + 0.22 * Math.abs(normal[axis] / nLen) : 1;
         const base = colorFor(eligible, mat.name);
         const r = Math.round(base[0] * shade),
           g = Math.round(base[1] * shade),
@@ -131,8 +143,8 @@ for (const [side, sign] of [
           period,
         );
         const px = pts.map((p) => {
-          const n = projectSidePoint(frame, p.x, p.y);
-          return { x: n.x * WIDTH, y: n.y * HEIGHT };
+          const n = projectSidePoint(view, endView ? p.z : p.x, p.y);
+          return { x: (face === 'rear' ? 1 - n.x : n.x) * WIDTH, y: n.y * HEIGHT };
         });
         const area =
           (px[1].x - px[0].x) * (px[2].y - px[0].y) -
@@ -175,7 +187,7 @@ for (const [side, sign] of [
             const l0 = w0 / area,
               l1 = w1 / area,
               l2 = w2 / area;
-            const z = l0 * pts[0].z + l1 * pts[1].z + l2 * pts[2].z;
+            const z = l0 * pts[0][axis] + l1 * pts[1][axis] + l2 * pts[2][axis];
             const score = z * sign;
             const idx = y * WIDTH + x;
             if (score <= depth[idx]) continue;
@@ -185,6 +197,7 @@ for (const [side, sign] of [
             guide[o + 1] = g;
             guide[o + 2] = b;
             guide[o + 3] = 255;
+            material[idx] = sketchMaterial;
             const s = wrapS(
               l0 * lifted[0] + l1 * lifted[1] + l2 * lifted[2],
             );
@@ -195,7 +208,7 @@ for (const [side, sign] of [
     }
   }
 
-  output[side] = {
+  output[face] = {
     image:
       'data:image/png;base64,' +
       (
@@ -213,6 +226,13 @@ for (const [side, sign] of [
         })
           .png()
           .toBuffer()
+      ).toString('base64'),
+    ink:
+      'data:image/png;base64,' +
+      (
+        await sharp(sketchInk(material, WIDTH, HEIGHT), {
+          raw: { width: WIDTH, height: HEIGHT, channels: 4 },
+        }).png().toBuffer()
       ).toString('base64'),
   };
 }

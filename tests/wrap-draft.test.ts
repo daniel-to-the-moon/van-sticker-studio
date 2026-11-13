@@ -114,7 +114,7 @@ void test('rejects unsafe or oversized image resources and too many resources', 
     ['data:image/svg+xml;base64,AAAA'],
     ['data:image/png;base64,not base64'],
     ['data:image/png;base64,' + 'A'.repeat(2_000_000)],
-    Array.from({ length: 81 }, () => image),
+    Array.from({ length: 161 }, () => image),
     [null],
   ]) {
     assert.throws(() => parseDraft(JSON.stringify({ ...envelope(), assets })));
@@ -169,4 +169,19 @@ void test('new R13 drafts use a distinct projection from saved perimeter drafts'
   assert.equal(projected.version, 2);
   assert.deepEqual(parseProject(JSON.stringify(projected)), projected);
   assert.deepEqual(parseDraft(serializeDraft(projected)), projected);
+});
+
+void test('front and rear artwork round trips without mirroring to another face', () => {
+  const p = addLayer(emptyProject(), newLayer('image', 'front-sign'), 'front');
+  assert.equal(p.layers[0].linked, false);
+  assert.equal(p.layers[0].entry, null);
+  assert.equal(p.layers[0].driver, null);
+  assert.equal(p.layers[0].rear, undefined);
+  const edit = editLayer(p, 'front-sign', 'front', { src: image });
+  const bothEnds = addLayer(edit, newLayer('text', 'rear-sign'), 'rear');
+  assert.deepEqual(parseDraft(serializeDraft(bothEnds)), bothEnds);
+  assert.equal(bothEnds.layers[1].front, undefined);
+  assert.throws(() => parseProject(JSON.stringify({
+    ...edit, layers: [{ ...edit.layers[0], linked: true }],
+  })));
 });

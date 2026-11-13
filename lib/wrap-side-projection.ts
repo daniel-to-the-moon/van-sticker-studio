@@ -9,6 +9,15 @@ export type SideFrame = {
 
 /** R13 wrap chart spans in public/model/motion_metadata.json. */
 export const R13_SIDE_ASPECT = 5.8 / 3.05;
+export const R13_END_ASPECT = 2.22 / 3.05;
+
+export function createEndProjection(body: { width: number; height: number; centerZ?: number }): SideFrame {
+  return createSideProjection({
+    xMin: (body.centerZ ?? 0) - body.width / 2,
+    length: body.width,
+    height: body.height,
+  });
+}
 
 /** Orthographic frame with 5% margin on every side; nose stays on the left for both sides. */
 export function createSideProjection(body: SideBody): SideFrame {

@@ -1,7 +1,12 @@
 /** Editable source in normalized front-to-rear, top-to-bottom side coordinates. */
-import { R13_SIDE_ASPECT } from './wrap-side-projection.ts';
+import { R13_END_ASPECT, R13_SIDE_ASPECT } from './wrap-side-projection.ts';
 
 export type Side = 'entry' | 'driver';
+export type EndFace = 'front' | 'rear';
+export type Face = Side | EndFace;
+export const WRAP_FACES = ['entry', 'driver', 'front', 'rear'] as const;
+export const isSideFace = (face: Face): face is Side =>
+  face === 'entry' || face === 'driver';
 export type Point = { x: number; y: number };
 export type Kind = 'region' | 'stroke' | 'text' | 'icon' | 'image';
 export type Art = {
@@ -28,6 +33,8 @@ export type Layer = {
   linked: boolean;
   entry: Art | null;
   driver: Art | null;
+  front?: Art | null;
+  rear?: Art | null;
 };
 // Version 1 uses perimeter coordinates. Version 2 uses the orthographic side frame.
 export type Project = { version: 1 | 2; background: string; layers: Layer[] };
@@ -88,26 +95,27 @@ export function newLayer(kind: Kind, id: string): Layer {
 export function addLayer(
   p: Project,
   layer: Layer,
-  side: Side,
+  side: Face,
   linked = true,
 ): Project {
   if (p.layers.length >= 40)
     throw new Error('最多 40 个图层，请先删除不用的图层');
-  const art = structuredClone(layer.entry ?? layer.driver);
+  const art = structuredClone(layer[side] ?? layer.entry ?? layer.driver ?? layer.front ?? layer.rear ?? null);
   const item: Layer = {
-    ...layer,
-    linked,
+    id: layer.id,
+    name: layer.name,
+    linked: linked && isSideFace(side),
     entry: null,
     driver: null,
     [side]: art,
   };
-  if (linked) item[otherSide(side)] = structuredClone(art);
+  if (item.linked && isSideFace(side)) item[otherSide(side)] = structuredClone(art);
   return { ...p, layers: [...p.layers, item] };
 }
 export function editLayer(
   p: Project,
   id: string,
-  side: Side,
+  side: Face,
   patch: Partial<Art>,
 ): Project {
   return {
@@ -120,7 +128,7 @@ export function editLayer(
       return {
         ...l,
         [side]: art,
-        ...(l.linked ? { [otherSide(side)]: structuredClone(art) } : {}),
+        ...(l.linked && isSideFace(side) ? { [otherSide(side)]: structuredClone(art) } : {}),
       };
     }),
   };
@@ -128,9 +136,10 @@ export function editLayer(
 export function setLinked(
   p: Project,
   id: string,
-  side: Side,
+  side: Face,
   linked: boolean,
 ): Project {
+  if (!isSideFace(side)) return p;
   return {
     ...p,
     layers: p.layers.map((l) =>
@@ -147,12 +156,12 @@ export function setLinked(
     ),
   };
 }
-export function removeLayer(p: Project, id: string, side?: Side): Project {
+export function removeLayer(p: Project, id: string, side?: Face): Project {
   return {
     ...p,
     layers: p.layers.flatMap((l) => {
       if (l.id !== id) return [l];
-      if (side && !l.linked && l[otherSide(side)])
+      if (side && !l.linked && WRAP_FACES.some((face) => face !== side && l[face]))
         return [{ ...l, [side]: null }];
       return [];
     }),
@@ -217,10 +226,11 @@ export function parseProject(json: string): Project {
     )
       return fail();
     ids.add(l.id);
-    if (!l.entry && !l.driver) return fail();
-    for (const side of ['entry', 'driver']) {
+    if (!WRAP_FACES.some((face) => l[face]) || (l.linked && (l.front || l.rear)))
+      return fail();
+    for (const side of WRAP_FACES) {
       const value = l[side];
-      if (value === null) continue;
+      if (value === null || (!isSideFace(side) && value === undefined)) continue;
       if (!value || typeof value !== 'object') return fail();
       const a = value as Record<string, unknown>;
       if (
@@ -388,9 +398,10 @@ export function artMarkup(a: Art): string {
     ink = `<image href="${escapeXml(a.src)}" width="1000" height="400" preserveAspectRatio="xMidYMid meet"/>`;
   return `<g transform="translate(${a.x * 1000} ${a.y * 400}) rotate(${a.rotation} ${a.w * 500} ${a.h * 200}) scale(${a.w} ${a.h})">${ink}</g>`;
 }
-export function svgDocument(p: Project, side: Side, surface = false): string {
-  const projectedExport = !surface && p.version === 2;
-  const height = projectedExport ? Math.round(2000 / R13_SIDE_ASPECT) : 800;
+export function svgDocument(p: Project, side: Face, surface = false): string {
+  const projectedExport = !surface && (p.version === 2 || !isSideFace(side));
+  const ratio = isSideFace(side) ? R13_SIDE_ASPECT : R13_END_ASPECT;
+  const height = projectedExport ? Math.round(2000 / ratio) : 800;
   const aspect = projectedExport ? ' preserveAspectRatio="none"' : '';
   return `<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="${height}" viewBox="0 0 1000 400"${aspect}><rect width="1000" height="400" fill="${p.background}"/>${p.layers.map((l) => (l[side]?.visible ? artMarkup(surface && side === 'entry' ? { ...l[side]!, x: 1 - l[side]!.x - l[side]!.w, rotation: -l[side]!.rotation, points: l[side]!.points.map((q) => ({ x: 1 - q.x, y: q.y })) } : l[side]!) : '')).join('')}</svg>`;
 }
