@@ -5,6 +5,7 @@ import test from 'node:test';
 import rasterizer from 'sharp';
 import { Box3, Vector3 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FRONT_ART_BOX } from '../lib/free-wrap.ts';
 import {
   createSideProjection,
   liftSideChartTriangle,
@@ -61,6 +62,22 @@ void test('both side images and masks have the R13 physical aspect ratio', async
       assert.equal(height, Math.round(width * frame.height / frame.width));
     }
   }
+});
+
+void test('R13 front art starts in the paintable strip below the windshield', async () => {
+  const mask = await decode(guides.front.mask);
+  let paintable = 0;
+  for (let j = 0; j < 20; j++) {
+    for (let i = 0; i < 20; i++) {
+      const { x, y, w, h } = FRONT_ART_BOX;
+      if (pixel(mask, x + (i + 0.5) * w / 20, y + (j + 0.5) * h / 20)[0] === 255) paintable++;
+    }
+  }
+  assert.ok(paintable > 320, 'most of the initial frame must be paintable');
+  const front = await decode(guides.front.ink);
+  const rear = await decode(guides.rear.ink);
+  assert.deepEqual(front.info, rear.info);
+  assert.ok(Math.abs(front.info.width / front.info.height - 2.22 / 3.05) < .001);
 });
 
 void test('both actual R13 side silhouettes have transparent margin on all four edges', async () => {

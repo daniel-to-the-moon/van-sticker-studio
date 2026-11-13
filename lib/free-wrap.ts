@@ -92,6 +92,8 @@ export function newLayer(kind: Kind, id: string): Layer {
     driver: structuredClone(art),
   };
 }
+/** Practical start positions on the narrow painted band below the R13 windshield. */
+export const FRONT_ART_BOX = { x: 0.35, y: 0.585, w: 0.3, h: 0.03 };
 export function addLayer(
   p: Project,
   layer: Layer,

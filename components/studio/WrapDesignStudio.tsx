@@ -42,6 +42,7 @@ import {
   commit,
   editLayer,
   emptyProject,
+  FRONT_ART_BOX,
   history,
   isSideFace,
   newLayer,
@@ -291,7 +292,9 @@ export default function WrapDesignStudio() {
   function insert(kind: Art['kind'], patch: Partial<Art> = {}) {
     try {
       let item = newLayer(kind, freshId());
-      item = { ...item, entry: { ...item.entry!, color, ...patch } };
+      const positioned = kind === 'text' || kind === 'image' || kind === 'icon';
+      const frame = side === 'front' && positioned ? FRONT_ART_BOX : {};
+      item = { ...item, entry: { ...item.entry!, color, ...patch, ...frame } };
       if (!save(addLayer(h.present, item, side, linked))) return;
       setSelected(item.id);
       if (tool !== kind) setTool('select');
@@ -1183,7 +1186,10 @@ export default function WrapDesignStudio() {
               <button
                 onClick={() =>
                   insert('region', {
-                    points: [
+                    points: side === 'front' ? [
+                      { x: .29, y: .587 }, { x: .71, y: .587 },
+                      { x: .71, y: .613 }, { x: .29, y: .613 },
+                    ] : [
                       { x: 0.3, y: 0.24 },
                       { x: 0.69, y: 0.24 },
                       { x: 0.69, y: 0.48 },
@@ -1199,8 +1205,8 @@ export default function WrapDesignStudio() {
                 onClick={() =>
                   insert('stroke', {
                     points: [
-                      { x: 0.31, y: 0.77 },
-                      { x: 0.73, y: 0.77 },
+                      { x: 0.31, y: side === 'front' ? .6 : side === 'rear' ? .67 : .77 },
+                      { x: 0.73, y: side === 'front' ? .6 : side === 'rear' ? .67 : .77 },
                     ],
                     thickness: 0.014,
                     dashed: false,
