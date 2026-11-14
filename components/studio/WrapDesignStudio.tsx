@@ -42,6 +42,7 @@ import {
   commit,
   editLayer,
   emptyProject,
+  DEFAULT_WRAP_BACKGROUND,
   FRONT_ART_BOX,
   history,
   isSideFace,
@@ -169,7 +170,9 @@ export default function WrapDesignStudio() {
   const legacySide = legacy && isSideFace(side);
   const sideGuide = legacySide ? legacyGuide?.[side] : guides[side];
   const sketchInk = legacySide ? undefined : guides[side].ink;
-  const sketchWash = legacySide ? undefined : guides[side].wash;
+  const sketchShading = legacySide ? undefined : guides[side].shading;
+  const guideImage = legacySide ? sideGuide?.image : guides[side].drawing;
+  const backgroundOpacity = legacySide ? 1 : project.background === DEFAULT_WRAP_BACKGROUND ? 0 : 0.78;
   const faceLayers = project.layers.filter((item) => item[side]);
   useEffect(() => {
     if (!legacy) return;
@@ -759,15 +762,16 @@ export default function WrapDesignStudio() {
                       </mask>
                     </defs>
                     <image
-                      href={sideGuide.image}
+                      href={guideImage}
                       width="1000"
                       height="400"
                       preserveAspectRatio="none"
                       pointerEvents="none"
                     />
-                    <rect width="1000" height="400" mask="url(#side-guide)" fill={project.background} opacity={legacySide ? 1 : 0.78} />
-                    {sketchWash && (
-                      <image href={sketchWash} width="1000" height="400"
+                    <rect width="1000" height="400" mask="url(#side-guide)"
+                      fill={project.background} opacity={backgroundOpacity} />
+                    {sketchShading && (
+                      <image href={sketchShading} width="1000" height="400"
                         preserveAspectRatio="none" pointerEvents="none" />
                     )}
                     <g mask="url(#side-guide)">

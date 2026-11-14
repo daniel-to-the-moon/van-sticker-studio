@@ -3,38 +3,40 @@ function noise(x: number, y: number) {
   return ((value ^ (value >>> 15)) >>> 0) / 0xffffffff;
 }
 
-/** A pass of a broad nib: uneven spacing, dry edges, and tapered ends. */
-function markerPass(x: number, y: number, slope: number, spacing: number, seed: number) {
-  const across = y + x * slope + Math.sin(x / 39 + seed) * 1.4;
-  const row = Math.floor(across / spacing);
-  const offset = across - row * spacing;
-  const edge = (noise(row, seed) - 0.5) * 3.5;
-  const distance = Math.abs(offset - spacing / 2 - edge);
-  const radius = spacing * (0.31 + noise(row, seed + 1) * 0.16);
-  const run = 94 + noise(row, seed + 2) * 127;
-  const along = x + noise(row, seed + 3) * run;
-  const segment = Math.floor(along / run);
-  const progress = along / run - segment;
-  const taper = Math.min(1, progress * 9, (1 - progress) * 9);
-  const tooth = noise(Math.floor(x * 1.6), Math.floor(y * 1.6));
-  if (distance > radius * (0.7 + 0.3 * taper) + (tooth - 0.5) * 1.6) return 0;
-  const rim = distance > radius * 0.73 ? 0.19 : 0;
-  return (0.36 + noise(row, segment + seed) * 0.54 + rim) *
-    (0.48 + 0.52 * taper) * (0.55 + 0.45 * tooth);
+/** Broken pencil lines. Pressure and width ease into each stroke and fall away at its end. */
+function pencilHatch(x: number, y: number, slope: number, spacing: number, seed: number) {
+  const across = y + x * slope + Math.sin(x / 37 + seed) * 0.68;
+  const line = Math.floor(across / spacing);
+  const jitter = (noise(line, seed) - 0.5) * spacing * 0.47;
+  const distance = Math.abs(across - (line + 0.5) * spacing - jitter);
+  if (distance > 1.65) return 0;
+  const length = 15 + noise(line, seed + 1) * 44;
+  const along = x + noise(line, seed + 2) * length;
+  const stroke = Math.floor(along / length);
+  const progress = along / length - stroke;
+  const end = 0.61 + noise(line, stroke + seed) * 0.36;
+  if (progress >= end) return 0;
+  const pressure = Math.min(1, progress * 9, (end - progress) * 9);
+  const width = (0.38 + noise(line, stroke - seed) * 0.9) * (0.48 + 0.52 * pressure);
+  return Math.max(0, Math.min(1, width + 0.42 - distance)) * pressure;
 }
 
-/** Wash the lower edges and recesses of the visible projection, with dry paper between passes. */
-export function sketchWash(material: Uint8Array, depth: Float64Array, width: number, height: number) {
-  const wash = Buffer.alloc(width * height * 4);
+/** Use the projection to place graphite in recesses, along lower edges, and at ground contact. */
+export function sketchShading(material: Uint8Array, depth: Float64Array, width: number, height: number) {
+  const shading = Buffer.alloc(width * height * 4);
   const scale = height / 550;
-  const sideView = width > height;
-  let left = width, right = 0, ground = 0;
+  const slope = width > height ? 0.68 : 0.53;
+  let left = width;
+  let right = 0;
+  let ground = 0;
+  const bottom = new Int32Array(width);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (!material[y * width + x]) continue;
       left = Math.min(left, x);
       right = Math.max(right, x);
       ground = y;
+      bottom[x] = y;
     }
   }
   const reach = Math.ceil(46 * scale);
@@ -47,17 +49,17 @@ export function sketchWash(material: Uint8Array, depth: Float64Array, width: num
       strength: 1 - distance / reach,
     };
   });
-  const side = Math.max(1, (right - left) * 0.045);
+  const groundMargin = Math.max(1, (right - left) * 0.045);
   for (let y = reach; y < height - 2; y++) {
     for (let x = 2; x < width - 2; x++) {
       const i = y * width + x;
       const surface = material[i];
       let shade = 0;
       if (surface) {
+        const threshold = depth[i] + 0.052;
         for (const { distance, offset, penumbra, strength } of probes) {
           const row = (y - distance) * width;
           const center = x - offset;
-          const threshold = depth[i] + 0.052;
           const coverage =
             Number(center - penumbra >= 0 && depth[row + center - penumbra] > threshold) +
             Number(center >= 0 && depth[row + center] > threshold) +
@@ -68,27 +70,45 @@ export function sketchWash(material: Uint8Array, depth: Float64Array, width: num
             shade = Math.max(shade, 0.78 * strength);
         }
         const lowerBody = Math.max(0, (y / ground - 0.53) / 0.47);
-        shade = Math.max(shade, surface === 3 ? 0.45 : surface === 2 ? 0.15 : lowerBody * 0.34);
+        shade = Math.max(shade, surface === 3 ? 0.48 : surface === 2 ? 0.24 : lowerBody * 0.29);
       } else if (y > ground - reach * 0.25 && y < ground + reach * 0.7) {
-        const horizontal = Math.min(1, Math.max(0, Math.min(x - left + side, right + side - x) / (side * 1.8)));
+        const edgeDistance = Math.min(x - left + groundMargin, right + groundMargin - x);
+        const horizontal = Math.min(1, Math.max(0, edgeDistance / (groundMargin * 1.8)));
         const nearGround = Math.max(0, 1 - Math.abs(y - ground) / (reach * 0.7));
-        shade = horizontal * nearGround * 0.56;
+        const contact = Math.max(0, 1 - (ground - bottom[x]) / (reach * 0.58));
+        shade = horizontal * nearGround * (0.24 + 0.46 * contact);
       }
       if (shade < 0.075) continue;
       const u = x / scale, v = y / scale;
-      const main = markerPass(u, v, sideView ? 0.21 : -0.12, 11, 23);
-      const cross = shade > 0.31 ? markerPass(u, v, -0.35, 13, 71) : 0;
+      const primary = pencilHatch(u, v, slope, 5.6, 23);
+      const cross = pencilHatch(u, v, -0.64, 6.9, 71);
+      const fine = pencilHatch(u, v, slope + 0.14, 3.8, 42);
       const tooth = noise(x, y);
-      const alpha = shade * (10 + main * 145 + cross * 72) * (0.68 + tooth * 0.32);
+      const dark = Math.min(1, Math.max(0, (shade - 0.26) * 2.6));
+      const alpha = shade * (primary * 235 + dark * (cross * 147 + fine * 86)) *
+        (0.41 + tooth * 0.59);
       if (alpha < 3) continue;
-      const tone = Math.min(1, cross * 0.6 + (surface === 2 ? 0.47 : 0));
-      wash.set([Math.round(116 - tone * 34), Math.round(88 - tone * 10), Math.round(63 + tone * 37), Math.round(alpha)], i * 4);
+      shading.set([49, 48, 46, Math.min(255, Math.round(alpha))], i * 4);
     }
   }
-  return wash;
+  return shading;
 }
 
-/** Keep the shape legible with a soft retraced outline and paper grain. */
+/** Render a neutral value study from the projected materials. */
+export function sketchBase(guide: Buffer, material: Uint8Array) {
+  const drawing = Buffer.alloc(guide.length);
+  for (let i = 0; i < material.length; i++) {
+    const surface = material[i];
+    if (!surface) continue;
+    const offset = i * 4;
+    const luminance = (guide[offset] * 3 + guide[offset + 1] * 6 + guide[offset + 2]) / 10;
+    const value = Math.round(surface === 3 ? 45 + luminance * 0.7 : 104 + luminance * 0.58);
+    drawing.set([value, value, value, 255], offset);
+  }
+  return drawing;
+}
+
+/** Use a light second pencil line on the silhouette and a single pass on fine details. */
 export function sketchInk(material: Uint8Array, width: number, height: number) {
   const pixels = Buffer.alloc(width * height * 4);
   const step = Math.max(2, Math.round(height / 430));
@@ -111,9 +131,9 @@ export function sketchInk(material: Uint8Array, width: number, height: number) {
       const wobble = Math.round(Math.sin(x / 32 + y / 39) * 2);
       const repeat = trace[(y - step - wobble) * width + x - step];
       const pressure = 0.8 + 0.16 * Math.sin(x / 41 - y / 51) + grain * 0.18;
-      const opacity = edge ? (edge === 2 ? 189 : 117) * pressure : repeat ? 43 * pressure : 0;
+      const opacity = edge ? (edge === 2 ? 192 : 110) * pressure : repeat === 2 ? 34 * pressure : 0;
       if (opacity < 3) continue;
-      pixels.set([49, 43, 40, Math.round(opacity)], i * 4);
+      pixels.set([43, 42, 41, Math.round(opacity)], i * 4);
     }
   }
   return pixels;

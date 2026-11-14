@@ -41,9 +41,10 @@ export type Project = { version: 1 | 2; background: string; layers: Layer[] };
 export type History = { past: Project[]; present: Project; future: Project[] };
 export const otherSide = (side: Side): Side =>
   side === 'entry' ? 'driver' : 'entry';
+export const DEFAULT_WRAP_BACKGROUND = '#f3eedf';
 export const emptyProject = (): Project => ({
   version: 2,
-  background: '#f3eedf',
+  background: DEFAULT_WRAP_BACKGROUND,
   layers: [],
 });
 export const names: Record<Kind, string> = {

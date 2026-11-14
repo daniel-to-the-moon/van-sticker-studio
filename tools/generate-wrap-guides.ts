@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { findFrontWrapTransitions } from '../lib/wrap-eligibility.ts';
 import { perimeterCoordinate, circumference } from '../lib/wrap-layout.ts';
-import { sketchInk, sketchWash } from './wrap-sketch-ink.ts';
+import { sketchBase, sketchInk, sketchShading } from './wrap-sketch-ink.ts';
 import {
   createSideProjection,
   createEndProjection,
@@ -232,7 +232,8 @@ for (const [face, axis, sign] of [
           .png()
           .toBuffer()
       ).toString('base64'),
-    wash: await sketchPng(sketchWash(material, depth, WIDTH, HEIGHT)),
+    drawing: await sketchPng(sketchBase(guide, material)),
+    shading: await sketchPng(sketchShading(material, depth, WIDTH, HEIGHT)),
     ink: await sketchPng(sketchInk(material, WIDTH, HEIGHT)),
   };
 }
