@@ -74,8 +74,8 @@ void test('R13 front art starts in the paintable strip below the windshield', as
     }
   }
   assert.ok(paintable > 320, 'most of the initial frame must be paintable');
-  const front = await decode(guides.front.ink);
-  const rear = await decode(guides.rear.ink);
+  const front = await decode(guides.front.image);
+  const rear = await decode(guides.rear.image);
   assert.deepEqual(front.info, rear.info);
   assert.ok(Math.abs(front.info.width / front.info.height - 2.58 / 3.05) < .001);
   for (const face of ['front', 'rear']) {
@@ -119,7 +119,8 @@ void test('closed-pose window and entrance-door glass align with the exclusion m
       const { x, y } = projectSidePoint(frame, center.x, center.y);
       const color = pixel(image, x, y);
       assert.equal(color[3], 255, name + ' is visible in the guide');
-      assert.ok(color[2] > color[0], name + ' uses the glass color');
+      assert.equal(color[0], color[2], name + ' uses a neutral gray');
+      assert.ok(color[0] > 140 && color[0] < 200, name + ' uses the glass tone');
       assert.ok(pixel(mask, x, y)[0] < 10, name + ' must stay unpainted');
     }
     const hull = projectSidePoint(frame, 1.4, 1.2);

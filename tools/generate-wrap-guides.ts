@@ -6,7 +6,6 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { findFrontWrapTransitions } from '../lib/wrap-eligibility.ts';
 import { perimeterCoordinate, circumference } from '../lib/wrap-layout.ts';
-import { sketchBase, sketchInk, sketchShading } from './wrap-sketch-ink.ts';
 import {
   createSideProjection,
   createEndProjection,
@@ -48,19 +47,33 @@ const frame = createSideProjection(body);
 const period = circumference(body);
 const endFrame = createEndProjection(body);
 const wrapS = (n: number) => ((n % period) + period) % period;
-const colorFor = (
-  eligible: boolean,
-  name: string,
-): [number, number, number] =>
-  eligible
-    ? [0xf3, 0xee, 0xdf]
-    : /Glass|Optic/.test(name)
-      ? [0xda, 0xe1, 0xe5]
-      : /Rubber|Tire|Graphite|Black/.test(name)
-        ? [0x4d, 0x53, 0x58]
-        : /Chrome/.test(name)
-          ? [0xab, 0xb0, 0xb4]
-          : [0xe3, 0xe4, 0xdf];
+function materialTone(name: string, eligible: boolean) {
+  if (eligible) return 242;
+  if (/Glass|Optic/.test(name)) return 184;
+  if (/Rubber|Tire|Graphite|Black/.test(name)) return 86;
+  if (/Chrome/.test(name)) return 169;
+  return 217;
+}
+
+/** A single crisp contour on the visible side of the vehicle silhouette. */
+function outlineSilhouette(guide: Buffer, width: number, height: number) {
+  const step = Math.max(1, Math.round(height / 620));
+  for (let y = step; y < height - step; y++) {
+    for (let x = step; x < width - step; x++) {
+      const offset = (y * width + x) * 4;
+      if (!guide[offset + 3]) continue;
+      const left = guide[offset - step * 4 + 3];
+      const right = guide[offset + step * 4 + 3];
+      const above = guide[offset - step * width * 4 + 3];
+      const below = guide[offset + step * width * 4 + 3];
+      if (left && right && above && below) continue;
+      const tone = Math.min(guide[offset], 137);
+      guide[offset] = tone;
+      guide[offset + 1] = tone;
+      guide[offset + 2] = tone;
+    }
+  }
+}
 
 const output: Record<string, unknown> = {
   sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
@@ -79,7 +92,6 @@ for (const [face, axis, sign] of [
   const HEIGHT = Math.round(WIDTH * view.height / view.width);
   const guide = Buffer.alloc(WIDTH * HEIGHT * 4, 0);
   const mask = Buffer.alloc(WIDTH * HEIGHT, 0);
-  const material = new Uint8Array(WIDTH * HEIGHT);
   const depth = new Float64Array(WIDTH * HEIGHT).fill(-Infinity);
   const sMin = { entry: 0, front: body.length, driver: body.length + body.width, rear: 2 * body.length + body.width }[face];
   const sMax = sMin + (endView ? body.width : body.length);
@@ -100,11 +112,6 @@ for (const [face, axis, sign] of [
     for (const group of groups) {
       const mat = mats[Math.min(group.materialIndex ?? 0, mats.length - 1)];
       if (!mat?.visible || /Interior|Fabric/.test(mat.name)) continue;
-      const sketchMaterial = /Glass|Optic/.test(mat.name)
-        ? 2
-        : /Rubber|Tire|Graphite|Black/.test(mat.name)
-          ? 3
-          : /Chrome/.test(mat.name) ? 4 : 1;
       const end = Math.min(group.start + group.count, total);
       for (let v = group.start; v + 2 < end; v += 3) {
         const ids = index
@@ -129,11 +136,8 @@ for (const [face, axis, sign] of [
         )
           continue;
         const nLen = normal.length();
-        const shade = nLen > 0 ? 0.78 + 0.22 * Math.abs(normal[axis] / nLen) : 1;
-        const base = colorFor(eligible, mat.name);
-        const r = Math.round(base[0] * shade),
-          g = Math.round(base[1] * shade),
-          b = Math.round(base[2] * shade);
+        const shade = nLen > 0 ? 0.91 + 0.09 * Math.abs(normal[axis] / nLen) : 1;
+        const tone = Math.round(materialTone(mat.name, eligible) * shade);
         const lifted = liftSideChartTriangle(
           pts.map((p) => perimeterCoordinate(p.x, p.z, body)) as [
             number,
@@ -193,11 +197,10 @@ for (const [face, axis, sign] of [
             if (score <= depth[idx]) continue;
             depth[idx] = score;
             const o = idx * 4;
-            guide[o] = r;
-            guide[o + 1] = g;
-            guide[o + 2] = b;
+            guide[o] = tone;
+            guide[o + 1] = tone;
+            guide[o + 2] = tone;
             guide[o + 3] = 255;
-            material[idx] = sketchMaterial;
             const s = wrapS(
               l0 * lifted[0] + l1 * lifted[1] + l2 * lifted[2],
             );
@@ -208,11 +211,7 @@ for (const [face, axis, sign] of [
     }
   }
 
-  const sketchPng = async (pixels: Buffer) =>
-    'data:image/png;base64,' +
-    (await sharp(pixels, { raw: { width: WIDTH, height: HEIGHT, channels: 4 } })
-      .png({ palette: true, colours: 96, dither: 0 })
-      .toBuffer()).toString('base64');
+  outlineSilhouette(guide, WIDTH, HEIGHT);
   output[face] = {
     image:
       'data:image/png;base64,' +
@@ -220,7 +219,7 @@ for (const [face, axis, sign] of [
         await sharp(guide, {
           raw: { width: WIDTH, height: HEIGHT, channels: 4 },
         })
-          .png()
+          .png({ palette: true, colours: 128, dither: 0 })
           .toBuffer()
       ).toString('base64'),
     mask:
@@ -232,9 +231,6 @@ for (const [face, axis, sign] of [
           .png()
           .toBuffer()
       ).toString('base64'),
-    drawing: await sketchPng(sketchBase(guide, material)),
-    shading: await sketchPng(sketchShading(material, depth, WIDTH, HEIGHT)),
-    ink: await sketchPng(sketchInk(material, WIDTH, HEIGHT)),
   };
 }
 

@@ -752,7 +752,7 @@
   margin: 2px 13px 13px;
   border: 1px solid #e3dbcc;
   border-radius: 10px;
-  background: radial-gradient(ellipse at 48% 35%, #fffdf6 4%, #f5f1e7 80%);
+  background: #fafafa;
   box-shadow: inset 0 1px 3px #55432f12, 0 1px 0 #fff;
 }
 .wrap-canvas[data-tool='select'] { cursor: default; }
@@ -769,7 +769,7 @@
   z-index: 2;
   display: grid;
   place-items: center;
-  background: #f7f0e1 center / contain no-repeat;
+  background: #fafafa center / contain no-repeat;
   pointer-events: none;
   transition: opacity 560ms ease, transform 560ms cubic-bezier(.22,.7,.3,1), visibility 560ms;
 }

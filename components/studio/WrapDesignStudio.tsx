@@ -169,10 +169,7 @@ export default function WrapDesignStudio() {
   const legacy = project.version === 1;
   const legacySide = legacy && isSideFace(side);
   const sideGuide = legacySide ? legacyGuide?.[side] : guides[side];
-  const sketchInk = legacySide ? undefined : guides[side].ink;
-  const sketchShading = legacySide ? undefined : guides[side].shading;
-  const guideImage = legacySide ? sideGuide?.image : guides[side].drawing;
-  const backgroundOpacity = legacySide ? 1 : project.background === DEFAULT_WRAP_BACKGROUND ? 0 : 0.78;
+  const customBackground = project.background.toLowerCase() !== DEFAULT_WRAP_BACKGROUND;
   const faceLayers = project.layers.filter((item) => item[side]);
   useEffect(() => {
     if (!legacy) return;
@@ -762,19 +759,18 @@ export default function WrapDesignStudio() {
                       </mask>
                     </defs>
                     <image
-                      href={guideImage}
+                      href={sideGuide.image}
                       width="1000"
                       height="400"
                       preserveAspectRatio="none"
                       pointerEvents="none"
+                      style={legacySide ? { filter: 'grayscale(1)' } : undefined}
                     />
-                    <rect width="1000" height="400" mask="url(#side-guide)"
-                      fill={project.background} opacity={backgroundOpacity} />
-                    {sketchShading && (
-                      <image href={sketchShading} width="1000" height="400"
-                        preserveAspectRatio="none" pointerEvents="none" />
-                    )}
                     <g mask="url(#side-guide)">
+                      {customBackground && (
+                        <rect width="1000" height="400"
+                          fill={project.background} opacity={legacySide ? 1 : 0.78} />
+                      )}
                       {project.layers.map(
                         (l) =>
                           l[side]?.visible && (
@@ -788,8 +784,6 @@ export default function WrapDesignStudio() {
                           ),
                       )}
                     </g>
-                    {sketchInk && <image href={sketchInk} width="1000" height="400"
-                      preserveAspectRatio="none" pointerEvents="none" />}
                     {art && art.visible && tool !== 'stroke' && tool !== 'region' && (
                       <rect
                         pointerEvents="none"
