@@ -5,6 +5,7 @@ import test from 'node:test';
 import rasterizer from 'sharp';
 import { Box3, Vector3 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FRONT_ART_BOX } from '../lib/free-wrap.ts';
 import {
   createSideProjection,
   liftSideChartTriangle,
@@ -63,6 +64,30 @@ void test('both side images and masks have the R13 physical aspect ratio', async
   }
 });
 
+void test('R13 front art starts in the paintable strip below the windshield', async () => {
+  const mask = await decode(guides.front.mask);
+  let paintable = 0;
+  for (let j = 0; j < 20; j++) {
+    for (let i = 0; i < 20; i++) {
+      const { x, y, w, h } = FRONT_ART_BOX;
+      if (pixel(mask, x + (i + 0.5) * w / 20, y + (j + 0.5) * h / 20)[0] === 255) paintable++;
+    }
+  }
+  assert.ok(paintable > 320, 'most of the initial frame must be paintable');
+  const front = await decode(guides.front.image);
+  const rear = await decode(guides.rear.image);
+  assert.deepEqual(front.info, rear.info);
+  assert.ok(Math.abs(front.info.width / front.info.height - 2.58 / 3.05) < .001);
+  for (const face of ['front', 'rear']) {
+    const guide = await decode(guides[face].image);
+    const { width, height, channels } = guide.info;
+    for (let y = 0; y < height; y++) {
+      assert.equal(guide.data[(y * width) * channels + 3], 0);
+      assert.equal(guide.data[(y * width + width - 1) * channels + 3], 0);
+    }
+  }
+});
+
 void test('both actual R13 side silhouettes have transparent margin on all four edges', async () => {
   for (const side of sides) {
     const { data, info } = await decode(guides[side].image);
@@ -94,7 +119,8 @@ void test('closed-pose window and entrance-door glass align with the exclusion m
       const { x, y } = projectSidePoint(frame, center.x, center.y);
       const color = pixel(image, x, y);
       assert.equal(color[3], 255, name + ' is visible in the guide');
-      assert.ok(color[2] > color[0], name + ' uses the glass color');
+      assert.equal(color[0], color[2], name + ' uses a neutral gray');
+      assert.ok(color[0] > 140 && color[0] < 200, name + ' uses the glass tone');
       assert.ok(pixel(mask, x, y)[0] < 10, name + ' must stay unpainted');
     }
     const hull = projectSidePoint(frame, 1.4, 1.2);

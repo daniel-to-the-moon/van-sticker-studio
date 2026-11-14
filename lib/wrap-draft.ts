@@ -1,7 +1,7 @@
-import { parseProject, type Art, type Project } from './free-wrap.ts';
+import { isSideFace, parseProject, WRAP_FACES, type Art, type Project } from './free-wrap.ts';
 
 const MAX_CHARACTERS = 8_000_000;
-const MAX_ASSETS = 80;
+const MAX_ASSETS = 40 * WRAP_FACES.length;
 const MAX_IMAGE_CHARACTERS = 2_000_000;
 type StoredArt = Omit<Art, 'src'> & { src: string | { asset: number } };
 
@@ -29,6 +29,8 @@ export function serializeDraft(project: Project): string {
         ...layer,
         entry: storeArt(layer.entry),
         driver: storeArt(layer.driver),
+        ...(layer.front !== undefined ? { front: storeArt(layer.front) } : {}),
+        ...(layer.rear !== undefined ? { rear: storeArt(layer.rear) } : {}),
       })),
     },
   });
@@ -74,9 +76,9 @@ export function parseDraft(json: string): Project {
   let expandedSize = JSON.stringify(stored.project).length;
   for (const layer of stored.project.layers) {
     if (!record(layer)) return invalid();
-    for (const side of ['entry', 'driver']) {
+    for (const side of WRAP_FACES) {
       const art = layer[side];
-      if (art === null) continue;
+      if (art === null || (!isSideFace(side) && art === undefined)) continue;
       if (!record(art)) return invalid();
       if (typeof art.src === 'string') continue;
       const reference = art.src;
