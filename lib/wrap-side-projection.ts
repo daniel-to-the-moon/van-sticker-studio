@@ -9,6 +9,17 @@ export type SideFrame = {
 
 /** R13 wrap chart spans in public/model/motion_metadata.json. */
 export const R13_SIDE_ASPECT = 5.8 / 3.05;
+// Closed R13 transverse envelope including the cab mirror housings.
+const R13_END_WIDTH = 2.58;
+export const R13_END_ASPECT = R13_END_WIDTH / 3.05;
+
+export function createEndProjection(body: { height: number; centerZ?: number }): SideFrame {
+  return createSideProjection({
+    xMin: (body.centerZ ?? 0) - R13_END_WIDTH / 2,
+    length: R13_END_WIDTH,
+    height: body.height,
+  });
+}
 
 /** Orthographic frame with 5% margin on every side; nose stays on the left for both sides. */
 export function createSideProjection(body: SideBody): SideFrame {

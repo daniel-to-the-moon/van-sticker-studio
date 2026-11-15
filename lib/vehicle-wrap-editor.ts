@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { svgDocument, type Project } from './free-wrap.ts';
+import { isSideFace, svgDocument, WRAP_FACES, type Project } from './free-wrap.ts';
 import { findFrontWrapTransitions } from './wrap-eligibility.ts';
 import {
   createSideProjection,
+  createEndProjection,
   liftSideChartTriangle,
   projectSidePoint,
 } from './wrap-side-projection.ts';
@@ -151,6 +152,10 @@ export class VehicleWrapEditor {
       },
       uDesignEntry: { value: null },
       uDesignDriver: { value: null },
+      uDesignFront: { value: null },
+      uDesignRear: { value: null },
+      uHasFrontDesign: { value: 0 },
+      uHasRearDesign: { value: 0 },
       uHasDesign: { value: 0 },
       uUseSideProjection: { value: 0 },
       uDesignSize: {
@@ -190,9 +195,9 @@ export class VehicleWrapEditor {
       this.bindLegacySurfaces(meshes, transitions, materials);
     }
     const projectedDesign = !options.profile;
-    const designVarying = projectedDesign ? 'varying vec2 vDesignProjection;' : '';
-    const designAttribute = projectedDesign ? 'attribute vec2 aDesignProjection;' : '';
-    const designAssignment = projectedDesign ? 'vDesignProjection = aDesignProjection;' : '';
+    const designVarying = projectedDesign ? 'varying vec2 vDesignProjection; varying float vEndProjection;' : '';
+    const designAttribute = projectedDesign ? 'attribute vec2 aDesignProjection; attribute float aEndProjection;' : '';
+    const designAssignment = projectedDesign ? 'vDesignProjection = aDesignProjection; vEndProjection = aEndProjection;' : '';
     const legacyY = '1.-vWrapCoord.y/uDesignSize.z';
     const legacyEntryX = 's/uDesignSize.x';
     const legacyDriverX = '(s-uDesignSize.x-uDesignSize.y)/uDesignSize.x';
@@ -201,6 +206,17 @@ export class VehicleWrapEditor {
     const designY = projectionOr('vDesignProjection.y', legacyY);
     const designEntryX = projectionOr('1.-vDesignProjection.x', legacyEntryX);
     const designDriverX = projectionOr('vDesignProjection.x', legacyDriverX);
+    const endDesign = projectedDesign ? `
+      if(vDesignProjection.y>=0. && vDesignProjection.y<=1.) {
+        if(uHasFrontDesign>.5 && s>uDesignSize.x && s<uDesignSize.x+uDesignSize.y) {
+          vec4 ink=texture2D(uDesignFront,vec2(vEndProjection,vDesignProjection.y));
+          diffuseColor.rgb=mix(diffuseColor.rgb,ink.rgb,ink.a);
+        } else if(uHasRearDesign>.5 && s>2.*uDesignSize.x+uDesignSize.y) {
+          vec4 ink=texture2D(uDesignRear,vec2(1.-vEndProjection,vDesignProjection.y));
+          diffuseColor.rgb=mix(diffuseColor.rgb,ink.rgb,ink.a);
+        }
+      }
+    ` : '';
     for (const material of materials) {
       material.onBeforeCompile = (shader) => {
         Object.assign(shader.uniforms, this.uniforms);
@@ -216,6 +232,8 @@ export class VehicleWrapEditor {
           uniform sampler2D uDecalMap; uniform float uHasDecal, uDecalAspect, uDecalPeriod, uDecalActive, uAntTime, uWrapReveal;
           uniform float uPaletteEnabled;
           uniform sampler2D uDesignEntry, uDesignDriver;
+          uniform sampler2D uDesignFront, uDesignRear;
+          uniform float uHasFrontDesign, uHasRearDesign;
           uniform float uHasDesign, uUseSideProjection; uniform vec3 uDesignSize;
           uniform vec3 uPaletteWhite, uPaletteAccent, uPaletteTrim;
           uniform vec2 uPaletteBand;
@@ -241,6 +259,7 @@ export class VehicleWrapEditor {
                 diffuseColor.rgb=mix(diffuseColor.rgb,ink.rgb,ink.a);
               }
             }
+            ${endDesign}
           }
           if(uHasDecal > .5 && vWrapEligible > .5) {
             for(int i=0;i<2;i++) {
@@ -268,7 +287,7 @@ export class VehicleWrapEditor {
       };
       material.customProgramCacheKey = () =>
         projectedDesign
-          ? 'mxgarage-continuous-wrap-editor-v6-versioned-design'
+          ? 'mxgarage-continuous-wrap-editor-v7-four-face-design'
           : 'mxgarage-continuous-wrap-editor-v4-design';
       material.needsUpdate = true;
     }
@@ -307,10 +326,11 @@ export class VehicleWrapEditor {
       this.designTextures = [];
       return;
     }
-    const textures = await Promise.all(
-      (['entry', 'driver'] as const).map(
-        (side) =>
-          new Promise<THREE.Texture>((resolve, reject) => {
+    const textures = await Promise.allSettled(
+      WRAP_FACES.map((side) =>
+          !isSideFace(side) && !project.layers.some((layer) => layer[side]?.visible)
+            ? Promise.resolve(null)
+            : new Promise<THREE.Texture>((resolve, reject) => {
             const image = new Image();
             image.onload = () => {
               const texture = new THREE.Texture(image);
@@ -326,14 +346,26 @@ export class VehicleWrapEditor {
           }),
       ),
     );
+    const loaded = textures.map((result) => result.status === 'fulfilled' ? result.value : null);
+    const failure = textures.find((result) => result.status === 'rejected');
+    const owned = loaded.filter((texture) => texture !== null);
+    if (failure) {
+      owned.forEach((texture) => texture.dispose());
+      if (epoch === this.designEpoch) throw failure.reason;
+      return;
+    }
     if (epoch !== this.designEpoch) {
-      textures.forEach((t) => t.dispose());
+      owned.forEach((t) => t.dispose());
       return;
     }
     this.designTextures.forEach((t) => t.dispose());
-    this.designTextures = textures;
-    this.uniforms.uDesignEntry.value = textures[0];
-    this.uniforms.uDesignDriver.value = textures[1];
+    this.designTextures = owned;
+    this.uniforms.uDesignEntry.value = loaded[0];
+    this.uniforms.uDesignDriver.value = loaded[1];
+    this.uniforms.uDesignFront.value = loaded[2];
+    this.uniforms.uDesignRear.value = loaded[3];
+    this.uniforms.uHasFrontDesign.value = Number(Boolean(loaded[2]));
+    this.uniforms.uHasRearDesign.value = Number(Boolean(loaded[3]));
     this.uniforms.uUseSideProjection.value = project.version === 2 ? 1 : 0;
     this.uniforms.uHasDesign.value = 1;
   }
@@ -725,6 +757,7 @@ export class VehicleWrapEditor {
     materials: Set<THREE.MeshStandardMaterial>,
   ) {
     const projection = createSideProjection(this.body);
+    const endProjection = createEndProjection(this.body);
     for (const o of meshes) {
       const wrap = [o.material].flat().every((m) => m.name.startsWith('Wrap_'));
       const mask = transitions.get(o);
@@ -741,6 +774,7 @@ export class VehicleWrapEditor {
       const position = o.geometry.getAttribute('position'),
         coords = new Float32Array(position.count * 2),
         designCoords = new Float32Array(position.count * 2);
+      const endCoords = new Float32Array(position.count);
       const world = new THREE.Vector3();
       for (let i = 0; i < position.count; i++) {
         world.fromBufferAttribute(position, i).applyMatrix4(o.matrixWorld);
@@ -749,6 +783,7 @@ export class VehicleWrapEditor {
         const projected = projectSidePoint(projection, world.x, world.y);
         designCoords[i * 2] = projected.x;
         designCoords[i * 2 + 1] = projected.y;
+        endCoords[i] = projectSidePoint(endProjection, world.z, world.y).x;
       }
       // Lift seam-crossing triangles into one local period before interpolation.
       const period = circumference(this.body);
@@ -766,6 +801,7 @@ export class VehicleWrapEditor {
         'aDesignProjection',
         new THREE.BufferAttribute(designCoords, 2),
       );
+      o.geometry.setAttribute('aEndProjection', new THREE.BufferAttribute(endCoords, 1));
       o.geometry.setAttribute(
         'aWrapCoord',
         new THREE.BufferAttribute(coords, 2),
