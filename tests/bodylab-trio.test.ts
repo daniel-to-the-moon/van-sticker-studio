@@ -10,6 +10,7 @@ import {
   snapChassisTrio,
   snapToAnnounced,
   trioLengthMm,
+  trioOf,
   type BodyConfig,
   type ChassisTrio,
 } from '../lib/parametric-body.ts';
@@ -49,9 +50,9 @@ void test('trio length is front + wheelbase + rear', () => {
 
 void test('default B trio is symmetric and sums to the default length', () => {
   const base: BodyConfig = { ...DEFAULT_BODY_CONFIG };
-  assert.equal(base.frontOverhangMm, 1045);
-  assert.equal(base.rearOverhangMm, 1045);
-  assert.equal(trioLengthMm(base), base.lengthMm);
+  assert.equal(trioOf(base).frontOverhangMm, 1045);
+  assert.equal(trioOf(base).rearOverhangMm, 1045);
+  assert.equal(trioLengthMm(trioOf(base)), base.lengthMm);
 });
 
 void test('axle positions come from overhangs', () => {
