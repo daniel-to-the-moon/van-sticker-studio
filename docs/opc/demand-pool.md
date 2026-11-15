@@ -182,3 +182,41 @@
 | P88 | Facebook | https://www.facebook.com/reel/1437296081599543/ （2026-09-13） | 【施工方一手口径】移动美容队拆除“见过最差的施工”：1 年半旧膜起泡、剥落、机盖/车门/车顶褐渍，拆后露出完好灰漆——1 年半即报废的劣质施工一例（呼应 P60 刚贴就翻车） | 中 |
 | P89 | Facebook 群组（Vehicle Wrap Design，已入群可读） | https://facebook.com/groups/864264767438637/permalink/2315616132303486/ （2026-06-25） | 【施工方一手口径】求助：12 英尺拖车膜已贴 10 年以上、烂到没见过，该收多少撕除费——超长膜龄撕除无法事前报价（呼应 P49、P77，拖车型） | 中 |
 | P90 | 房车改装商知识库（Vandoit，厢式露营车改装商） | https://vandoit.zohodesk.com/portal/en/kb/articles/van-wrap-is-damaged | 【行业口径】厢式露营车改装商官方 KB：拉花起皮/开裂/气泡/瑕疵在“允许容差”内属正常、只保 6 英寸内定制范围——买家视角：带拉花的厢式车交付时缺陷可被厂商以“容差”兜底，信任缺口的供给侧证据 | 中 |
+
+### 2026-11-10（周二轮：全社媒拉花雷达，共 9 条）
+
+> 采集说明：mxgarage-decal-social-radar 2026-11-10（周二）轮。本轮新信号：高价单同样翻车（P95，6000 美元拉花交付即满是褶皱/气泡/起边）与房车贴纸专属养护禁忌（P97，打蜡致起边＋整车拉花 3000–5000 美元/仅 5 年寿命锚点）。Facebook 特关：Vehicle Wrap Design（2.2 万，已入群可读）本轮 fading/bubbles 检索首条仍为 P46 同帖（已剔除）；新发现群 Bailey Caravans General Help and Support（2.4 万，公开，英国房车群，P96 即出自该群）、2022–2020 Chevy Silverado & GMC Sierra Owners（3.3 万，公开，P95 出自该群）、RV MURAL PAINTING .MX（1 千，房车彩绘/条纹）、RV DIY, Decor and Renovation Ideas Group（8 千，房车定制改装）、RV DETAILING（236，房车美容）；Car Wrapping（3.8 万，瑞典语简介群）本轮重新搜到，成员身份仍未确认、群内帖未读；PPF and wrapping（3.9 万）与上轮一致无变化；That's a Wrap 475→476。social.search 英文命中 59 条，剔除 P28/P30/P31/P63/P68/P76/P84 同 URL 及 Corvette 红膜盖紫底同一事件重复帖；中文搜索本轮只返回年检 SEO 软文（贴膜透光率/反射率，与拉花面积规则无新增角度，未入库）；Bilibili 限定搜索 0 相关结果；X 本轮无直接车主原声命中，仅经英国标识牌论坛拿到施工方失效根因分析（入 P99）；抖音/小红书站内仍被登录墙挡住；微信朋友圈仍为私域盲区。本轮 9 条全部去重，无 URL 与 P1–P90 重复。
+
+| # | 平台 | 原帖 | 痛点摘要 | 相关性 |
+|---|------|------|----------|--------|
+| P91 | Instagram | https://www.instagram.com/reel/DbAeDDqtJft/ （2026-07-20） | 【用户原声】车主 DIY 双色 Supra：自贴部分＋店贴前后杠，前杠仍开始起边脱落，忠告“别在拉花上省钱”；评论区争论是膜品牌还是施工问题、多人分享亚利桑那高温下膜失效经历——DIY＋店贴混合仍翻车，保险杠曲面是重灾区（呼应 P29/P43/P87） | 中 |
+| P92 | Instagram | https://www.instagram.com/reel/DfaKgMFRlih/ （2026-11-06） | 【用户原声】车主自述“I messed up my wrap”：DIY 贴膜大体成功、唯独驾驶侧车门失手——本轮最新鲜的 DIY 翻车一例（11-06 发布），车门单块失败同样要返工（呼应 P91） | 中 |
+| P93 | Instagram | https://www.instagram.com/reel/DJZrXQiv6CE/ （2025-05-08） | 【用户原声】4 年旧膜从 WRX 机盖撕下，黑色面漆整片被带掉、露出灰色底漆与裸金属，配文称该车曾补过漆——撕膜带漆的又一实证：膜龄 4 年＋后喷漆面双重风险（呼应 P28/P39/P47） | 中 |
+| P94 | Instagram | https://www.instagram.com/reel/DNV9i-KJG6x/ （2025-08-14） | 【施工方一手口径】店家实拍：哑光橄榄绿 Tesla Model 3 机盖大面积棕色霉斑状变色，称是 3M 膜典型失效、非一夜之间形成——连 3M 大牌膜也会劣化变色，品牌背书≠免责（单一店家口径，普适性打折） | 中 |
+| P95 | Facebook 群组（2022–2020 Chevy Silverado & GMC Sierra Owners，3.3 万，公开） | https://www.facebook.com/groups/1061856330967252/permalink/2479566862529518/ （2026-08-26） | 【用户原声】消费者投诉：6000 美元拉花交付即不合格，前后杠/大灯处满是褶皱、气泡、起边翘起——高价单同样翻车的新证据：价格≠质量保证，低价单风险提示（#70）之外还缺“高价单翻车”的对照（呼应 P66/P67） | 高 |
+| P96 | Facebook 群组（Bailey Caravans General Help and Support，2.4 万，公开） | https://www.facebook.com/groups/788649062690887/permalink/1375399354015852/ （2026-08-16） | 【用户原声】白色车辆侧面贴纸/拉花多处气泡与褶皱特写（窗框旁黑白图案区）——房车/拖挂车贴纸起泡的群内原声一例（该群为英国房车车主互助群，本轮新发现） | 中 |
+| P97 | 房车论坛 irv2 | https://www.irv2.com/threads/what-to-do-about-peeling-cracking-2003-allegro-decals.2063681/ | 【用户原声】2003 款 Allegro 房车贴纸开裂起边求助帖：整车拉花约 3000–5000 美元、仅保 5 年；回帖警告“千万别给贴纸打蜡，蜡中石油馏分会致边缘起边”，另有车主称可用成卷膜材自行裁切替换、约 1000 美元——房车贴纸专属价格锚点＋养护禁忌新角度（呼应 P51/P62） | 高 |
+| P98 | Facebook 群组（Vehicle Wrap Design，已入群可读） | https://facebook.com/groups/864264767438637/permalink/2334017390463360/ （2026-07-16，69 评论） | 【施工方一手口径】店家求助：客户要在纹理粗糙的 RZR 越野车身贴膜，不知如何备胶求经验——粗糙纹理表面粘贴难题，基材错配的新一例（呼应 P61 塑料前杠、P75 复合材料厢板） | 中 |
+| P99 | 行业论坛 uksignboards | https://uksignboards.com/forums-2/discussion/can-anyone-advise-with-vinyl-peeling-from-van/ | 【施工方一手口径】施工方求助：给客户贴的厢式车膜数月后起边卷曲，回帖根因分析：膜未充分排气就覆膜、上下搭接方向反了致进水、冷天湿贴致胶未固化——供给侧失效根因的三条实操清单（呼应 P46 延迟起边、P64 报价漏项） | 中 |
+
+### 2026-11-14（周六轮：全社媒拉花雷达，共 14 条）
+
+> 采集说明：mxgarage-decal-social-radar 2026-11-14（周六）轮。本轮主信号是“撕除成本”成簇：10 年旧膜撕除费 $2,500–$4,000＋免责声明（P100）、烤干脆化膜须刮除重喷（P107）、厢式车撕膜价目区间（P114）、国内 12 条翻车汇总的“撕膜账”（P113）。Facebook 特关：Vehicle Wrap Design 群内 fading/bubbles 检索首条仍为 P46/P98 同帖（已剔除）；新发现群 Van Wrap Design（842 成员，厢式车买卖＋拉花设计市集，本轮可读帖）、RV Owners - Exterior Detailing and Exterior Cleaning Solutions Group（326）、The RV Detailing Forum（1 千）；Car Wrapping（3.8 万）成员身份仍未确认、群内帖未读；Wrap Car Community 仍 3 千、PPF and wrapping 仍 3.9 万、THE WRAP SOCIETY 仍 4 千；That's a Wrap 本轮关键词检索未复核到（上轮 476）；Van Wrap Design 群内 2026-09-17 一帖广告“AI 图 48 小时转矢量/PSD 可打印文件”服务，为 P72–P74 断层的供给侧再添一例（广告帖，不单独入库，作 issue #69 补充证据）。social.search 英文 60 条命中，剔除 P28/P30/P31/P63/P68/P76/P84/P91/P94 同 URL 及 Corvette 红膜盖紫底重复帖；针筒修气泡同类视频本轮另见 3 条（作 P110 频次佐证）。中文搜索：什么值得买 12 条翻车汇总入 P113，其余中文词返回翻车/侧翻等噪音；Bilibili 限定搜索 0 相关；X 无直接车主原声，仅经商家价格指南拿到撕膜价目（P114）；抖音/小红书站内仍被登录墙挡住；微信朋友圈仍为私域盲区。P113 原文已由 Pubby 独立打开核实（内容与摘要一致，文末标注“内容由 AI 生成”）。本轮 14 条全部去重，无 URL 与 P1–P99 重复。
+
+| # | 平台 | 原帖 | 痛点摘要 | 相关性 |
+|---|------|------|----------|--------|
+| P100 | Instagram | https://www.instagram.com/reel/Da0w9_jgxmP/ （2026-07-15，@detailgroove） | 【施工方一手口径】10 年旧膜撕除：店家要求车主签免责声明（撕膜可能带掉漆/露出旧伤），撕除费 $2,500–$4,000；评论区同行称拉花是“3–4 年产品 MAX”，超期撕除按小时收费——撕除成本＋免责声明的供给侧证据（呼应 P77、P49） | 高 |
+| P101 | Instagram | https://www.instagram.com/reel/DXZ51bMje_J/ （2026-04-21，@boosted.zilla） | 【用户原声】GT-R 龙纹拉花撕下后几乎每块板都有漆面损伤（后杠、侧围、双门把手周围、前翼、机盖、车顶、前杠，仅一侧前翼完好），创作者称系底漆附着不良——撕膜带漆的严重程度新例（呼应 P28/P39，归因：劣质底漆） | 中 |
+| P102 | Instagram | https://www.instagram.com/reel/DDDj-DRvXn1/ （2024-12-02，@jim_super_） | 【施工方一手口径】廉价店走捷径：用底漆/助粘剂画线代替拉伸加热贴合缝隙，撕膜时清漆沿助粘线成片剥落——施工走捷径致撕膜伤漆的新机制（呼应 P35/P47） | 中 |
+| P103 | Instagram | https://www.instagram.com/reel/DL_QxPFJaSM/ （2025-07-12，@kazsawyer） | 【用户原声】病毒式高压注气撕膜法：给签名拉花 Taycan 注气起泡撕膜，省了工时却把后围板顶裂——网红撕膜捷径反致车身件损坏的新角度（呼应 P77 撕膜成本） | 中 |
+| P104 | Instagram | https://www.instagram.com/reel/Dc1-Pm1A7Y0/ （2026-09-03，@jsilvatwp） | 【施工方一手口径】DIY 翻车皮卡送店收尾：A 柱/车顶线/门把手/后视镜/门框皱褶气泡翘边、底部摇臂板撕裂，评论称“还得再付一笔撕除费”——DIY 失败的双重成本（呼应 P29/P43/P87） | 中 |
+| P105 | Instagram | https://www.instagram.com/reel/DeNnuFszS4A/ （2026-10-08，@ptcustomgraphics） | 【施工方一手口径】传感器开孔处膜撕裂，10 英尺膜报废——施工耗材浪费一例，传感器/开孔部位是膜材损耗点（呼应 P80 传感器受损） | 中 |
+| P106 | Instagram | https://www.instagram.com/reel/DKHcPK2OYGw/ （2025-05-26，@all_en_cars） | 【施工方一手口径】褪色科普：乙烯基一般 3–5 年、日晒下仅 1–3 年，出现开裂即应撕除；过早褪色四因：廉价膜、无陶瓷/UV 养护、久不洗车、无遮盖——养护责任在车主的新角度（呼应 P30/P94） | 中 |
+| P107 | Instagram | https://www.instagram.com/reel/DJ9uNwJOhRi/ （2025-05-22，@alexsaliba） | 【用户原声】太阳烤干的 Fiat 全车拉花脆裂成片、无法整片撕下，须刮除＋整车重喷哑黑；评论称撕除按 $75/小时计——烤干脆化膜撕除难度的新例（呼应 P77/P89） | 中 |
+| P108 | Instagram | https://www.instagram.com/reel/DW4CEOrDqxa/ （2026-04-08，@dipstickjax） | 【用户原声】2 年旧印花拉花开裂剥落、撕除须打磨且露底漆须重喷；车主卖给经销商时因图案不招买家被要求撕除——印花拉花拖累转售的新角度（呼应 P23 保值）；同帖液态膜可整片干净撕下作对照 | 中 |
+| P109 | Facebook（Judge Judy 节目片段） | https://www.facebook.com/judyjusticeimdbtv/videos/2061784741306513/ （2025-07-03） | 【媒体转述车主原声】$4,000 拉花纠纷上法庭：店方称已嘱咐勿暴晒、勿自动洗车，车主未遵照致剥落——养护责任纠纷的新角度（呼应 P106 养护责任、P66 退款纠纷；电视节目片段，引用打折） | 中 |
+| P110 | Facebook | https://www.facebook.com/demilked/videos/1095631585717735/ （2025-05-30） | 【用户原声＋评论争论】针筒注液修气泡：评论争论针孔是否永久弱点、高温下是否扩大，多人称“好膜根本不用扎孔”——气泡修补手法本身成争议（呼应 P83/P84；同类视频本轮另见 3 条，作频次佐证） | 中 |
+| P111 | 房车论坛 irv2 | https://www.irv2.com/threads/who-installs-replaces-decals.2044641/ | 【用户原声】2012 款 Tioga 房车贴纸开裂收缩，车主“找了又找”仍找不到愿接“拆旧＋换新”的服务商；2015 款 Thor Chateau 整套贴纸约 $4,000＋安装 $1,500（合计 $5,500）；撕除后留“鬼影”（日晒色差）无法避免——房车贴纸换新供给缺口＋价格锚点（呼应 P51/P97；美元价不作国内锚点） | 高 |
+| P112 | 房车指南站 thecampingadvisor | https://thecampingadvisor.com/winnebago-replacement-decals/ | 【行业口径】原厂房车贴纸通常只备货 3–4 年（5 年算幸运），之后须定制；单张贴纸可达 $700，原厂渠道整套可达 $2,000＋；贴纸寿命约 10 年——与 P111 互补的备货窗口＋价格锚点；注意：该站称“打蜡可保护贴纸”，与 P97“千万别打蜡”直接冲突，养护口径未统一 | 中 |
+| P113 | 什么值得买（AI 汇总帖，引用打折） | https://post.smzdm.com/p/a82pxkp7/ （2026-10-16） | 【媒体转述 12 条翻车帖】国内改色膜翻车汇总（小红书/知乎/B站/1818黄金眼）：三类坑——材质老化（廉价膜 1–2 年残胶、TPU 不到一年起泡）、颜值翻车（网红色划痕难遮、滤镜与实物差）、条款门店（质保只保膜不保施工、返工补交 1,000 元手工费）；翻车集中在贴后 3 天/3–12 个月/1–2 年三个窗口；国内价 1,000–10,000＋——首个国内多源翻车汇总（呼应 P17/P49/P70；本文由 AI 生成，引用打折） | 高 |
+| P114 | 行业价格指南 APG | https://www.apg2u.com/blog/wrap-removal-cost/ （2026-10-30 更新） | 【行业口径】2026 撕膜价目：轿车 $500–$1,500、厢式/Sprinter $800–$2,500、高顶 Sprinter $900–$2,500、箱式货车 $1,200–$3,500；膜龄是最大定价因子（超 5 年或烤干膜耗时 2–3 倍），除胶清理另加 $80–$300——厢式车撕膜的直接价格区间（呼应 P77/P100；美国价，不作国内锚点） | 中 |
