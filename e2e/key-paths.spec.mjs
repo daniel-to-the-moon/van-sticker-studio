@@ -87,19 +87,27 @@ test('design workbench opens', async ({ page, baseURL }) => {
   expect(seen.external, 'requests leaving the site').toEqual([]);
 });
 
+async function statusWithBody(response) {
+  if (!response) return 'no response';
+  if (response.status() === 200) return 200;
+  const text = (await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 1500);
+  return `${response.status()} ${text}`;
+}
+
 test('body lab and model lab render', async ({ page, baseURL }) => {
   const seen = watch(page, baseURL);
-  await page.goto('/body-lab');
+  const bodyLab = await page.goto('/body-lab');
   await page.getByRole('heading', { level: 1 }).waitFor({ timeout: 120_000 });
   await page.waitForTimeout(SETTLE_MS);
   await shot(page, 'body-lab');
+  expect(await statusWithBody(bodyLab), '/body-lab server render').toBe(200);
 
   const response = await page.goto('/model-lab');
   await page.waitForTimeout(SETTLE_MS);
   await page.locator('.model-lab-stage canvas').waitFor({ timeout: 180_000 }).catch(() => {});
   await page.waitForTimeout(SETTLE_MS);
   await shot(page, 'model-lab');
-  expect(response?.status(), '/model-lab status').toBe(200);
+  expect(await statusWithBody(response), '/model-lab server render').toBe(200);
   await expect(page.locator('.model-lab-stage canvas')).toBeVisible();
   expect(seen.errors, 'uncaught page errors').toEqual([]);
   expect(seen.external, 'requests leaving the site').toEqual([]);
