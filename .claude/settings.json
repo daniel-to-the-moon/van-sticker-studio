@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(npm ci)",
+      "Bash(npm run lint)",
+      "Bash(npm test)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npm run build)",
+      "Bash(node --experimental-strip-types --test:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh issue view:*)"
+    ],
+    "deny": [
+      "Read(./.openai/**)",
+      "Edit(./.openai/**)",
+      "Read(./.dev.vars)",
+      "Read(./.dev.vars.*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(~/.config/agent-apps/**)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git commit --no-verify:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(npx wrangler deploy:*)",
+      "Bash(npx wrangler versions deploy:*)",
+      "Bash(npx wrangler secret:*)"
+    ]
+  }
+}
