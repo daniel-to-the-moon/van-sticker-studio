@@ -1,0 +1,12 @@
+{
+  "_comment": "AGENTS §0 体系 → GitHub 身份。App 写 slug（bot 登录名为 <slug>[bot]）；没有 GitHub 登录名的提交按作者邮箱归属。改动本文件属维护者保留项。",
+  "systems": {
+    "gpt": { "members": ["GPT", "dot", "codex"], "apps": ["mxgarage-vss-gpt"], "emails": [] },
+    "muse": { "members": ["Muse", "Pubby"], "apps": ["mxgarage-vss-muse"], "emails": [] },
+    "grok": { "members": ["Grok", "Clara"], "apps": ["mxgarage-vss-grok"], "emails": [] },
+    "claude": { "members": ["Claude"], "apps": [], "emails": ["noreply@anthropic.com"] }
+  },
+  "maintainers": ["daniel-to-the-moon"],
+  "automation": ["github-actions[bot]", "web-flow", "mxgarage-vss-gate[bot]"],
+  "e2eLabeler": "github-actions[bot]"
+}
