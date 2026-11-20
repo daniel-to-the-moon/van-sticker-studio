@@ -6,7 +6,8 @@
 #
 # 触发：
 # - Workers Builds 每次构建成功（check_run completed）后自动跑：从检查摘要取 Preview URL，
-#   期望 commit = 该检查的 head_sha。仅在本文件进入 main 后生效（GitHub 只读默认分支上的此类触发器）。
+#   期望 commit = 该检查的 head_sha。分支预览的摘要不带 URL，自动跳过（可手动跑）。
+#   仅在本文件进入 main 后生效（GitHub 只读默认分支上的此类触发器）。
 # - 手动 workflow_dispatch：任意 URL / 期望 commit，可用来核对生产当前服务的版本。
 
 name: Release acceptance
@@ -65,21 +66,28 @@ jobs:
               const v = summary.match(/Version ID:\s*([0-9a-f-]+)/);
               label = `Workers Builds 版本 ${v ? v[1] : "未知"}（${commit.slice(0, 7)}）`;
             }
+            if (event.check_run && !url) {
+              // 分支预览构建的检查摘要不带 Preview URL（URL 在机器人 PR 评论里）；跳过，需要时手动跑。
+              console.log("::notice::Workers Builds summary has no Preview URL (branch preview); skipped");
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, "skip=true\n");
+              process.exit(0);
+            }
             if (!/^https:\/\/[A-Za-z0-9.-]+(\/.*)?$/.test(url)) { console.error("no usable https preview URL"); process.exit(1); }
             if (commit && !/^[0-9a-fA-F]{7,40}$/.test(commit)) { console.error("expect_commit must be hex"); process.exit(1); }
-            const out = fs.createWriteStream(process.env.GITHUB_OUTPUT, { flags: "a" });
-            out.write(`url=${url}\ncommit=${commit}\nlabel=${label.replace(/[\r\n]/g, " ")}\n`);
-            out.end();
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `url=${url}\ncommit=${commit}\nlabel=${label.replace(/[\r\n]/g, " ")}\n`);
           '
       - uses: actions/checkout@v4
+        if: steps.target.outputs.skip != 'true'
         with:
           # 用期望 commit 的源码取 GLB 元数据做哈希链核对；无期望时用默认分支。
           ref: ${{ steps.target.outputs.commit || github.sha }}
           fetch-depth: 1
       - uses: actions/setup-node@v4
+        if: steps.target.outputs.skip != 'true'
         with:
           node-version: '22'
       - name: Smoke the target version
+        if: steps.target.outputs.skip != 'true'
         env:
           TARGET_URL: ${{ steps.target.outputs.url }}
           TARGET_COMMIT: ${{ steps.target.outputs.commit }}
@@ -91,11 +99,11 @@ jobs:
           [ -n "$TARGET_LABEL" ] && args+=(--label "$TARGET_LABEL")
           node tools/release-acceptance.mjs "${args[@]}" | tee target.md
       - name: Record what production serves now (informational)
-        if: always()
+        if: always() && steps.target.outputs.skip != 'true'
         run: |
           node tools/release-acceptance.mjs --url "$PRODUCTION_URL" --label "当前生产（对照，不判定本次）" | tee production.md || true
       - name: Publish evidence
-        if: always()
+        if: always() && steps.target.outputs.skip != 'true'
         run: |
           {
             echo "源码 checkout：\`$(git rev-parse HEAD)\`，run：${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
@@ -105,7 +113,7 @@ jobs:
             [ -f production.md ] && cat production.md
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && steps.target.outputs.skip != 'true'
         with:
           name: release-acceptance-${{ github.run_id }}
           path: |

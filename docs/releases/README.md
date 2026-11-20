@@ -15,7 +15,7 @@
 | 步 | 做什么 | 谁 | 产物 |
 | --- | --- | --- | --- |
 | 1 | 每个构建把 commit/分支/构建时间烘进产物，`GET /api/version` 可读 | 自动（`lib/build-info.ts`、`vite.config.ts`） | 任意版本 URL 上的 JSON |
-| 2 | Workers Builds 构建成功 → 自动对该版本预览跑只读冒烟，并顺带记录生产当前版本 | 自动（`.github/workflows/release-acceptance.yml`） | Actions Job Summary + 90 天 artifact |
+| 2 | Workers Builds 在 main 上构建成功 → 自动对该版本预览跑只读冒烟，并顺带记录生产当前版本（PR 分支预览的检查摘要不带 URL，自动跳过；URL 见机器人 PR 评论，可手动跑） | 自动（`.github/workflows/release-acceptance.yml`） | Actions Job Summary + 90 天 artifact |
 | 3 | 写发版记录：当前生产版本、目标版本、包含的 PR、回滚目标 | 实现者或 dot | `docs/releases/<日期>-rcN.md` |
 | 4 | 按发版记录的清单在**目标版本预览 URL** 上做关键路径验收，逐项贴证据 | GPT（见下方独立性） | 发版 PR/Issue 下一条验收评论 |
 | 5 | 体验官 drawing 目检（AGENTS §3，GPT 不代替） | 体验官；无人时按 §15 由用户指定 | 同视角截图与结论 |
