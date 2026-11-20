@@ -1,0 +1,169 @@
+# 关键路径 e2e ＋ 前后截图对比
+#
+# 对 PR head 和它的 base 各构建一次、用 `wrangler dev` 本地起服务，跑同一份
+# e2e/key-paths.spec.mjs（head 的版本）：
+# - head 的断言失败 → 本检查失败（缺 3D、样例贴不上、AI 状态不诚实、实验页 404、
+#   390px 横向溢出、请求出站、未捕获异常）。
+# - 两边截图逐张对比，结果写进 Job Summary 和 PR 里一条固定评论，前后图与差异图进 artifact。
+# - 全部视图相同且 head 通过 → 自动打 `no-visual-change`；有变化 → 去掉 `no-visual-change`，
+#   新推送时同时去掉旧的 `visual-accepted`，请体验官重新看图。这两个标签是自动上线闸门的输入。
+# 不调用真实生成，不用任何 secret。@playwright/test 以 --no-save 装在独立目录，不动 package-lock。
+
+name: e2e
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  key-paths:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    env:
+      PW_VERSION: 1.63.0
+      WRANGLER_SEND_METRICS: 'false'
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: head
+      - uses: actions/checkout@v4
+        id: base_checkout
+        continue-on-error: true
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: base
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: head/package-lock.json
+      - name: Install Playwright runner (outside the lockfile)
+        run: |
+          mkdir -p runner shots/head shots/base shots/diff
+          cp head/e2e/playwright.config.mjs head/e2e/*.spec.mjs runner/
+          cd runner
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund "@playwright/test@${PW_VERSION}"
+          npx playwright install --with-deps chromium
+      - name: Write the serve helper
+        run: |
+          cat > serve.sh <<'EOF'
+          #!/usr/bin/env bash
+          # usage: serve.sh <dir> <port>
+          set -euo pipefail
+          dir=$1; port=$2
+          (cd "$dir" && npm ci --no-audit --no-fund && npm run build)
+          (cd "$dir" && nohup npx wrangler dev --config dist/server/wrangler.json \
+            --port "$port" --ip 127.0.0.1 --show-interactive-dev-session=false \
+            > "$GITHUB_WORKSPACE/wrangler-$port.log" 2>&1 &)
+          for _ in $(seq 1 90); do
+            if curl -sf -o /dev/null "http://127.0.0.1:$port/"; then exit 0; fi
+            sleep 2
+          done
+          echo "server on $port did not come up"; tail -50 "$GITHUB_WORKSPACE/wrangler-$port.log"; exit 1
+          EOF
+          chmod +x serve.sh
+      - name: Serve head
+        run: ./serve.sh head 8787
+      - name: Key paths on head
+        id: head_e2e
+        continue-on-error: true
+        env:
+          E2E_BASE_URL: http://127.0.0.1:8787
+          E2E_SHOTS: ${{ github.workspace }}/shots/head
+          E2E_REPORT: ${{ github.workspace }}/shots/head-report.json
+          E2E_OUTPUT: ${{ github.workspace }}/shots/head-output
+        working-directory: runner
+        run: npx playwright test -c playwright.config.mjs
+      - name: Stop head server
+        if: always()
+        run: pkill -f "wrangler dev" || true
+      - name: Serve base and capture its screenshots
+        id: base_e2e
+        if: steps.base_checkout.outcome == 'success'
+        continue-on-error: true
+        env:
+          E2E_BASE_URL: http://127.0.0.1:8788
+          E2E_SHOTS: ${{ github.workspace }}/shots/base
+          E2E_REPORT: ${{ github.workspace }}/shots/base-report.json
+          E2E_OUTPUT: ${{ github.workspace }}/shots/base-output
+        run: |
+          ./serve.sh base 8788
+          (cd runner && npx playwright test -c playwright.config.mjs) || echo "::notice::base build failed some key paths (screenshots still compared)"
+          pkill -f "wrangler dev" || true
+      - name: Compare screenshots
+        if: always()
+        run: |
+          node head/e2e/compare-shots.mjs shots/base shots/head shots/diff | tee shots/diff/summary-print.md
+          {
+            echo "### 关键路径 e2e（head \`${GITHUB_SHA:0:7}\`，base \`${BASE_SHA:0:7}\`）：${{ steps.head_e2e.outcome == 'success' && '通过' || '失败' }}"
+            echo
+            cat shots/diff/summary.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Update labels and the PR comment
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          ACTION: ${{ github.event.action }}
+          HEAD_OK: ${{ steps.head_e2e.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          repo="$GITHUB_REPOSITORY"
+          [ -f shots/diff/result.json ] || exit 0
+          same=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("shots/diff/result.json","utf8")).noVisualChange)')
+          labels=$(gh api "repos/$repo/issues/$PR/labels" --jq '.[].name')
+          if [ "$same" = "true" ] && [ "$HEAD_OK" = "success" ]; then
+            gh api "repos/$repo/issues/$PR/labels" -f "labels[]=no-visual-change" > /dev/null
+            note="所有视图与 base 相同，已自动打 \`no-visual-change\`。"
+          else
+            if grep -qx "no-visual-change" <<<"$labels"; then
+              gh api -X DELETE "repos/$repo/issues/$PR/labels/no-visual-change" > /dev/null || true
+            fi
+            note="有可见变化：请体验官看 artifact 里的前后图与差异图，确认后打 \`visual-accepted\`。"
+            if [ "$ACTION" = "synchronize" ] && grep -qx "visual-accepted" <<<"$labels"; then
+              gh api -X DELETE "repos/$repo/issues/$PR/labels/visual-accepted" > /dev/null || true
+              note="$note 新推送改变了画面，旧的 \`visual-accepted\` 已撤下。"
+            fi
+          fi
+          {
+            echo "<!-- e2e-visual-report -->"
+            echo "执行者：e2e 工作流｜head \`${GITHUB_SHA}\`｜关键路径：${HEAD_OK}"
+            echo
+            echo "$note"
+            echo
+            cat shots/diff/summary.md
+            echo
+            echo "run 与截图 artifact：$RUN_URL"
+          } > comment.md
+          existing=$(gh api "repos/$repo/issues/$PR/comments?per_page=100" --jq '[.[] | select(.body | startswith("<!-- e2e-visual-report -->"))][0].id // empty')
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$repo/issues/comments/$existing" -F body=@comment.md > /dev/null
+          else
+            gh api "repos/$repo/issues/$PR/comments" -F body=@comment.md > /dev/null
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-shots-${{ github.run_id }}
+          path: |
+            shots
+            wrangler-*.log
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Fail when head key paths failed
+        if: steps.head_e2e.outcome != 'success'
+        run: exit 1
