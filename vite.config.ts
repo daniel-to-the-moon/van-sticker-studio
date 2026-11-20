@@ -3,6 +3,7 @@ import tailwindcss from '@tailwindcss/postcss';
 import vinext from 'vinext';
 import { defineConfig } from 'vite';
 import hostingConfig from './.openai/hosting.json';
+import { resolveBuildInfo } from './lib/build-info';
 import { vehiclePreviewReload } from './tools/vehicle-preview-reload';
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
@@ -46,6 +47,10 @@ export default defineConfig(async () => {
   const { cloudflare } = await import('@cloudflare/vite-plugin');
 
   return {
+    // Non-secret build identity for GET /api/version (lib/build-info.ts).
+    define: {
+      __VSS_BUILD_INFO__: JSON.stringify(resolveBuildInfo(process.env)),
+    },
     css: { postcss: { plugins: [tailwindcss()] } },
     server: {
       port: 3000,
