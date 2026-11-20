@@ -78,7 +78,7 @@ void test('the maintainer can approve anything, and maintainer PRs need any one 
   });
   const result = evaluateGate(own, config);
   assert.equal(result.pass, true);
-  assert.deepEqual(result.implementers.sort(), ['claude', 'maintainer']);
+  assert.deepEqual([...result.implementers].sort((a, b) => a.localeCompare(b)), ['claude', 'maintainer']);
 });
 
 void test('approvals on an older head or later changes-requested do not pass', () => {
