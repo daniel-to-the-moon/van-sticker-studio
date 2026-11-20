@@ -27,16 +27,27 @@
 
 PR 推送、标签变化、评审提交/撤回时自动重算；也可以在 PR 评论 `/gate` 触发。
 
-## 维护者一次性配置
+## 维护者一次性配置（脚本，一条命令）
 
-1. **建第 4 个 App** `mxgarage-vss-gate`：用 `docs/process/setup-apps.html`（本地浏览器打开，前缀填 `mxgarage-vss`）里的 gate 卡（权限只有 Checks/Commit statuses 写、Contents/Pull requests/Issues 读）。生成私钥，安装到本仓库。
-2. **Environment**：Settings → Environments → New environment `independence-gate` → Deployment branches 选 *Selected branches*，只加 `main` → 加两个 secret：`GATE_APP_ID`（App ID）、`GATE_APP_PRIVATE_KEY`（整个 .pem 内容）。只限 main 是关键：PR 分支上的工作流拿不到这把私钥。
-3. **规则集**：Settings → Rules → Rulesets → New branch ruleset，目标 `main`：
-   - Restrict deletions、Block force pushes
-   - Require a pull request before merging（Required approvals 可设 0，独立性由闸门判）
-   - Require status checks to pass：添加 `gates`、`independence-gate`（`e2e`、`pr-hygiene` 等 #111、#112 合并、工作流已产出这两个检查后再加，否则 PR 会一直等不到）；把 `independence-gate` 的来源选为 `mxgarage-vss-gate`（GitHub 要求该 App 先在仓库里发过一次检查，所以先合并本 PR、等它在任一 PR 上跑一次再来选）
-   - Bypass list 只留你本人（紧急时用）
-4. **吊销旧令牌**：各 agent 平台换成自己的 App 私钥并验证能推送后，吊销 agent 手里所有 `daniel-to-the-moon` 的个人令牌。
+GitHub 没有直接创建 App 的 API，唯一的程序化途径是 manifest 流程，每个 App 需要在浏览器里确认一次。`tools/bootstrap-github.mjs` 把其余步骤都交给 GitHub CLI，在本机运行（需要已 `gh auth login` 为仓库管理员）：
+
+```bash
+node tools/bootstrap-github.mjs --repo daniel-to-the-moon/van-sticker-studio \
+  --prefix mxgarage-vss --systems gpt,muse,grok --existing gpt,muse,grok
+```
+
+- **App**：自动打开本地页面，对每个还没建的 App（这里只剩 `mxgarage-vss-gate`）依次跳到 GitHub：点 **Create GitHub App** → 自动到安装页，只选本仓库点 **Install** → 自动回来进行下一个。私钥保存到 `~/.config/agent-apps/<slug>.pem`（权限 600），不打印。
+- **仓库**：建标签；建 Environment `independence-gate`（只允许默认分支部署）并写入 `GATE_APP_ID`、`GATE_APP_PRIVATE_KEY`；把实际 App slug 写进 `.github/agent-identities.json`（请用 PR 提交）；建或更新规则集 `agent-governance`（禁删除与强推、要求 PR、必需检查 `gates`，管理员可绕过）。
+- **闸门变为必需**：合并后在任一 PR 评论 `/gate`，等它产出一次检查，再运行一次：
+
+```bash
+node tools/bootstrap-github.mjs --repo daniel-to-the-moon/van-sticker-studio \
+  --prefix mxgarage-vss --systems gpt,muse,grok --existing gpt,muse,grok --repo-only --require-gate
+```
+
+  GitHub 只允许把必需检查绑定到已经上报过该检查的 App，所以要分两次。
+- 其余：`e2e`、`pr-hygiene` 等对应 PR 合并、产出检查后，再在规则集里加为必需；各 agent 平台换成自己的 App 私钥后，吊销它们手里的维护者个人令牌。
+- 新项目同样用这条命令，`--existing` 写已经建过的 App，脚本只把新仓库配置好（App 的安装范围仍需在 App 设置页把新仓库加进去）。
 
 ## Agent 平台怎么用 App
 
