@@ -1,0 +1,39 @@
+# 超期 Draft 处理（AGENTS §10）：7 天无提交打 stale 并评论；再 7 天无提交关闭，分支保留。
+# 新提交会撤销 stale。手动触发可选 dry_run 只看结果不动手。
+
+name: stale-drafts
+
+on:
+  schedule:
+    - cron: '23 17 * * *' # 每天 17:23 UTC（北京时间 01:23）
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '只打印将要做的动作'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          if [ "$DRY" = "true" ]; then node tools/stale-drafts.mjs --dry-run; else node tools/stale-drafts.mjs; fi | tee -a "$GITHUB_STEP_SUMMARY"
+        shell: bash -o pipefail {0}
