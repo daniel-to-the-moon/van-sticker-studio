@@ -24,10 +24,10 @@ void test('arguments are validated and lists are parsed', () => {
 
 void test('existing Apps are skipped and the gate App comes last with narrow permissions', () => {
   const planned = plannedApps(parseArgs([...base, '--systems', 'gpt,muse,grok', '--existing', 'gpt,muse,grok']));
-  assert.deepEqual(planned.map((a) => a.name), ['mxgarage-vss-gate']);
+  assert.deepEqual(planned.map((a: { name: string }) => a.name), ['mxgarage-vss-gate']);
   assert.equal(planned[0].permissions, GATE_PERMISSIONS);
   const fresh = plannedApps(parseArgs([...base, '--systems', 'gpt,grok']));
-  assert.deepEqual(fresh.map((a) => a.name), ['mxgarage-vss-gpt', 'mxgarage-vss-grok', 'mxgarage-vss-gate']);
+  assert.deepEqual(fresh.map((a: { name: string }) => a.name), ['mxgarage-vss-gpt', 'mxgarage-vss-grok', 'mxgarage-vss-gate']);
   assert.equal(fresh[0].permissions, AGENT_PERMISSIONS);
   assert.equal(GATE_PERMISSIONS.contents, 'read');
 });
@@ -45,11 +45,11 @@ void test('manifest is private, webhook-less and returns to the local server', (
 void test('ruleset requires gates, and binds independence-gate to the gate App only when asked', () => {
   const plain = rulesetBody({ gateAppId: undefined, requireGate: false });
   const checks = (b: ReturnType<typeof rulesetBody>) =>
-    (b.rules.find((r) => r.type === 'required_status_checks') as { parameters: { required_status_checks: unknown[] } })
+    (b.rules.find((r: { type: string }) => r.type === 'required_status_checks') as { parameters: { required_status_checks: unknown[] } })
       .parameters.required_status_checks;
   assert.deepEqual(checks(plain), [{ context: 'gates' }]);
   assert.deepEqual(plain.conditions.ref_name.include, ['~DEFAULT_BRANCH']);
-  assert.ok(plain.rules.some((r) => r.type === 'non_fast_forward'));
+  assert.ok(plain.rules.some((r: { type: string }) => r.type === 'non_fast_forward'));
   assert.deepEqual(checks(rulesetBody({ gateAppId: 42, requireGate: true }))[1], { context: 'independence-gate', integration_id: 42 });
   assert.throws(() => rulesetBody({ gateAppId: undefined, requireGate: true }), /gate App id/);
 });
