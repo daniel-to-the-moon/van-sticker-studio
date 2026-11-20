@@ -15,7 +15,8 @@ type Review = { user: string; state: string; commitId: string; submittedAt: stri
 function pr(overrides: Record<string, unknown> = {}) {
   return {
     headSha: HEAD,
-    headCommittedAt: T0,
+    headPushedAt: T0,
+    sameRepo: true,
     author: { login: 'mxgarage-vss-gpt[bot]' },
     pushers: ['mxgarage-vss-gpt[bot]'],
     commits: [{ author: bot('mxgarage-vss-gpt'), committer: bot('mxgarage-vss-gpt') }],
@@ -124,7 +125,7 @@ void test('visible changes need a fresh maintainer visual-accepted or e2e no-vis
   assert.equal(evaluateGate(byAgent, config).pass, false);
   const stale = pr({
     ...base,
-    headCommittedAt: T1,
+    headPushedAt: T1,
     labels: ['visual-accepted'],
     labelEvents: [{ label: 'visual-accepted', actor: 'daniel-to-the-moon', createdAt: T0 }],
   });
@@ -141,6 +142,19 @@ void test('visible changes need a fresh maintainer visual-accepted or e2e no-vis
     labelEvents: [{ label: 'no-visual-change', actor: 'mxgarage-vss-gpt[bot]', createdAt: T1 }],
   });
   assert.equal(evaluateGate(fakeE2e, config).pass, false);
+});
+
+void test('fork PRs and an unknown head push time fail closed', () => {
+  const approved = { reviews: [approve('mxgarage-vss-grok[bot]')] };
+  assert.match(evaluateGate(pr({ ...approved, sameRepo: false }), config).reasons.join('\n'), /fork/);
+  const visual = {
+    ...approved,
+    files: ['app/page.tsx'],
+    headPushedAt: null,
+    labels: ['visual-accepted'],
+    labelEvents: [{ label: 'visual-accepted', actor: 'daniel-to-the-moon', createdAt: T1 }],
+  };
+  assert.match(evaluateGate(pr(visual), config).reasons.join('\n'), /推送时间/);
 });
 
 void test('the report names head, implementers, approvers and reasons', () => {

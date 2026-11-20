@@ -22,7 +22,8 @@
 1. **实现方体系** = PR 作者 + 推送到该分支的所有身份（取自仓库活动记录，不能伪造）+ 提交里声明的作者（只会让实现方变多，所以伪造无益）。作者或推送者不在映射里 → 未通过。
 2. **独立批准**：至少一个对**当前 head** 的 APPROVED 评审，来自不属于实现方的体系，或来自维护者。旧 head 上的批准不算。
 3. **无阻断**：任何评审者最近一次评审是“要求修改” → 未通过。
-4. **视觉**：改了可见文件时，需要维护者在最新提交之后打的 `visual-accepted`，或 e2e 工作流（`github-actions[bot]`）在最新提交之后打的 `no-visual-change`。agent 打的 `visual-accepted` 不算。
+4. **视觉**：改了可见文件时，需要维护者在**当前 head 推送之后**（按仓库活动记录的推送时间，不看提交里自带的日期）打的 `visual-accepted`，或 e2e 工作流（`github-actions[bot]`）在那之后打的 `no-visual-change`。agent 打的 `visual-accepted` 不算。
+5. **fork PR 一律不放行**：推送者身份核实不了。所有列表接口都翻完全部分页再判定。
 
 PR 推送、标签变化、评审提交/撤回时自动重算；也可以在 PR 评论 `/gate` 触发。
 
@@ -33,7 +34,7 @@ PR 推送、标签变化、评审提交/撤回时自动重算；也可以在 PR 
 3. **规则集**：Settings → Rules → Rulesets → New branch ruleset，目标 `main`：
    - Restrict deletions、Block force pushes
    - Require a pull request before merging（Required approvals 可设 0，独立性由闸门判）
-   - Require status checks to pass：添加 `gates`、`e2e`、`pr-hygiene`、`independence-gate`；把 `independence-gate` 的来源选为 `mxgarage-vss-gate`（GitHub 要求该 App 先在仓库里发过一次检查，所以先合并本 PR、等它在任一 PR 上跑一次再来选）
+   - Require status checks to pass：添加 `gates`、`independence-gate`（`e2e`、`pr-hygiene` 等 #111、#112 合并、工作流已产出这两个检查后再加，否则 PR 会一直等不到）；把 `independence-gate` 的来源选为 `mxgarage-vss-gate`（GitHub 要求该 App 先在仓库里发过一次检查，所以先合并本 PR、等它在任一 PR 上跑一次再来选）
    - Bypass list 只留你本人（紧急时用）
 4. **吊销旧令牌**：各 agent 平台换成自己的 App 私钥并验证能推送后，吊销 agent 手里所有 `daniel-to-the-moon` 的个人令牌。
 
@@ -62,5 +63,5 @@ git config user.email "${id}+mxgarage-vss-gpt[bot]@users.noreply.github.com"
 ## 局限
 
 - 维护者账号的权力最大：用它推送等于维护者亲自实现，批准等于维护者批准。所以它只能由本人使用。
-- 仓库活动记录只保留近 90 天、单页 100 条；极长的 PR 可能漏算早期推送者（只会让闸门更宽松）。超长 PR 请拆分。
+- 仓库活动记录只保留近 90 天；存活超过 90 天的分支可能漏算早期推送者。超长寿命的分支请重开 PR。
 - `no-visual-change` 由 e2e 工作流用 `GITHUB_TOKEN` 打；同仓库 PR 里的工作流理论上也能以 `github-actions[bot]` 身份打这个标签。需要更严时，改为仅接受维护者打的 `visual-accepted`。

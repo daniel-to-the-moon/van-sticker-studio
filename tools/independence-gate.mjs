@@ -51,7 +51,7 @@ export function systemOf(identity, config) {
 /**
  * Pure verdict.
  * @param {{
- *   headSha: string, headCommittedAt: string,
+ *   headSha: string, headPushedAt: string | null, sameRepo: boolean,
  *   author: { login: string },
  *   pushers: string[],
  *   commits: { author: { login?: string|null, email?: string }, committer: { login?: string|null, email?: string } }[],
@@ -64,6 +64,7 @@ export function systemOf(identity, config) {
  */
 export function evaluateGate(pr, config) {
   const reasons = [];
+  if (!pr.sameRepo) reasons.push('来自 fork 的 PR：无法核实推送者身份，闸门不放行（请在本仓库分支上提交）');
   const implementers = new Set();
   // Verified identities: who opened the PR and who pushed to its branch.
   // Commit author/committer fields are self-declared, so they can only add
@@ -109,7 +110,8 @@ export function evaluateGate(pr, config) {
         .filter((e) => e.label === name)
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
         .pop();
-    const fresh = (event) => event && event.createdAt >= pr.headCommittedAt;
+    // A label counts only if it was added after the current head was pushed.
+    const fresh = (event) => Boolean(event && pr.headPushedAt && event.createdAt >= pr.headPushedAt);
     const accepted = lastLabel('visual-accepted');
     const unchanged = lastLabel('no-visual-change');
     if (
@@ -120,9 +122,11 @@ export function evaluateGate(pr, config) {
       visual = `visual-accepted（${accepted.actor}）`;
     else if (pr.labels.includes('no-visual-change') && fresh(unchanged) && unchanged.actor === config.e2eLabeler)
       visual = 'no-visual-change（e2e）';
+    else if (!pr.headPushedAt)
+      reasons.push('查不到当前 head 的推送时间，无法确认视觉验收针对的是这一版');
     else
       reasons.push(
-        `改了可见文件（${visualFiles.slice(0, 3).join(', ')}${visualFiles.length > 3 ? ' …' : ''}），需维护者在最新提交后打 visual-accepted，或 e2e 判定无变化`,
+        `改了可见文件（${visualFiles.slice(0, 3).join(', ')}${visualFiles.length > 3 ? ' …' : ''}），需维护者在当前 head 推送后打 visual-accepted，或 e2e 判定无变化`,
       );
   }
   return { pass: reasons.length === 0, reasons, implementers: [...implementers], approvers, visual };
@@ -155,21 +159,39 @@ async function gh(method, path, body) {
   return res.json();
 }
 
+/** GET every page of a list endpoint (per_page=100) so nothing past page 1 is missed. */
+async function ghAll(path) {
+  const items = [];
+  for (let page = 1; page <= 50; page += 1) {
+    const sep = path.includes('?') ? '&' : '?';
+    const batch = await gh('GET', `${path}${sep}per_page=100&page=${page}`);
+    items.push(...batch);
+    if (batch.length < 100) return items;
+  }
+  throw new Error(`${path}: more than 5000 items, refusing to judge an incomplete list`);
+}
+
 async function collect(repo, number) {
   const pr = await gh('GET', `/repos/${repo}/pulls/${number}`);
-  const commits = await gh('GET', `/repos/${repo}/pulls/${number}/commits?per_page=100`);
-  const reviews = await gh('GET', `/repos/${repo}/pulls/${number}/reviews?per_page=100`);
-  const files = await gh('GET', `/repos/${repo}/pulls/${number}/files?per_page=100`);
-  const events = await gh('GET', `/repos/${repo}/issues/${number}/events?per_page=100`);
-  const activity = await gh(
-    'GET',
-    `/repos/${repo}/activity?ref=${encodeURIComponent(`refs/heads/${pr.head.ref}`)}&per_page=100`,
-  );
-  const head = commits.find((c) => c.sha === pr.head.sha) ?? commits[commits.length - 1];
+  const commits = await ghAll(`/repos/${repo}/pulls/${number}/commits`);
+  const reviews = await ghAll(`/repos/${repo}/pulls/${number}/reviews`);
+  const files = await ghAll(`/repos/${repo}/pulls/${number}/files`);
+  const events = await ghAll(`/repos/${repo}/issues/${number}/events`);
+  const sameRepo = pr.head.repo?.full_name === repo;
+  const activity = sameRepo
+    ? await ghAll(`/repos/${repo}/activity?ref=${encodeURIComponent(`refs/heads/${pr.head.ref}`)}`)
+    : [];
   const who = (user, git) => ({ login: user?.login ?? null, email: git?.email ?? '' });
   return {
     headSha: pr.head.sha,
-    headCommittedAt: head?.commit?.committer?.date ?? '',
+    sameRepo,
+    // Server-side time the current head reached the branch (not the Git commit date).
+    headPushedAt:
+      activity
+        .filter((a) => a.after === pr.head.sha)
+        .map((a) => a.timestamp)
+        .sort()
+        .pop() ?? null,
     author: { login: pr.user.login },
     pushers: [...new Set(activity.map((a) => a.actor?.login).filter(Boolean))],
     commits: commits.map((c) => ({ author: who(c.author, c.commit.author), committer: who(c.committer, c.commit.committer) })),
