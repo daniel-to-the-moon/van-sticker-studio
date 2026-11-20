@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Independence gate (AGENTS §0/§3/§8, issue #114). Decides from GitHub
+ * Independence gate (agent-governance-kit). Decides from GitHub
  * identities — not signatures — whether a PR head has:
  *   1. an APPROVED review on the exact head SHA from a system that took no
  *      part in the implementation (or from a maintainer),
@@ -8,7 +8,7 @@
  *   3. when visible files change: `visual-accepted` added by a maintainer
  *      after the head commit, or `no-visual-change` added by the e2e workflow
  *      after the head commit.
- * Identities come from .github/agent-identities.json.
+ * Identities, visible paths and label names come from .github/agent-identities.json.
  *
  *   node tools/independence-gate.mjs --pr <number> [--publish]
  * Env: GITHUB_TOKEN (gate App installation token when publishing),
@@ -20,12 +20,15 @@ import { pathToFileURL } from 'node:url';
 
 export const CHECK_NAME = 'independence-gate';
 
-/** Same rule as tools/production-deploy.mjs (#108); keep the two in step. */
-export function isVisualPath(file) {
-  if (/\.(md|txt)$/i.test(file)) return false;
-  if (/^(docs|tests|tools|ops|\.github)\//.test(file)) return false;
-  if (file.startsWith('app/api/')) return false;
-  return /^(app|components|hooks|lib|public)\//.test(file) || /\.(css|tsx)$/.test(file);
+/**
+ * Visible-change rule from config.visual = { include: [regex…], exclude: [regex…] }.
+ * Exclusions win. Without config.visual the visual check is off.
+ */
+export function isVisualPath(file, config) {
+  const visual = config.visual;
+  if (!visual) return false;
+  const any = (patterns) => (patterns ?? []).some((p) => new RegExp(p).test(file));
+  return any(visual.include) && !any(visual.exclude);
 }
 
 /** Map a GitHub login (or, failing that, a commit email) to a system key. */
@@ -102,7 +105,9 @@ export function evaluateGate(pr, config) {
       `缺少对当前 head ${pr.headSha.slice(0, 7)} 的非本体系批准（实现方：${[...implementers].join('、') || '无'}）`,
     );
 
-  const visualFiles = pr.files.filter(isVisualPath);
+  const visualFiles = pr.files.filter((file) => isVisualPath(file, config));
+  const ACCEPTED = config.visual?.acceptedLabel ?? 'visual-accepted';
+  const UNCHANGED = config.visual?.unchangedLabel ?? 'no-visual-change';
   let visual = 'not-needed';
   if (visualFiles.length > 0) {
     const lastLabel = (name) =>
@@ -112,21 +117,21 @@ export function evaluateGate(pr, config) {
         .pop();
     // A label counts only if it was added after the current head was pushed.
     const fresh = (event) => Boolean(event && pr.headPushedAt && event.createdAt >= pr.headPushedAt);
-    const accepted = lastLabel('visual-accepted');
-    const unchanged = lastLabel('no-visual-change');
+    const accepted = lastLabel(ACCEPTED);
+    const unchanged = lastLabel(UNCHANGED);
     if (
-      pr.labels.includes('visual-accepted') &&
+      pr.labels.includes(ACCEPTED) &&
       fresh(accepted) &&
       systemOf({ login: accepted.actor }, config) === 'maintainer'
     )
-      visual = `visual-accepted（${accepted.actor}）`;
-    else if (pr.labels.includes('no-visual-change') && fresh(unchanged) && unchanged.actor === config.e2eLabeler)
-      visual = 'no-visual-change（e2e）';
+      visual = `${ACCEPTED}（${accepted.actor}）`;
+    else if (config.visual?.unchangedLabeler && pr.labels.includes(UNCHANGED) && fresh(unchanged) && unchanged.actor === config.visual.unchangedLabeler)
+      visual = `${UNCHANGED}（${unchanged.actor}）`;
     else if (!pr.headPushedAt)
       reasons.push('查不到当前 head 的推送时间，无法确认视觉验收针对的是这一版');
     else
       reasons.push(
-        `改了可见文件（${visualFiles.slice(0, 3).join(', ')}${visualFiles.length > 3 ? ' …' : ''}），需维护者在当前 head 推送后打 visual-accepted，或 e2e 判定无变化`,
+        `改了可见文件（${visualFiles.slice(0, 3).join(', ')}${visualFiles.length > 3 ? ' …' : ''}），需维护者在当前 head 推送后打 ${ACCEPTED}${config.visual?.unchangedLabeler ? `，或 ${config.visual.unchangedLabeler} 打 ${UNCHANGED}` : ''}`,
       );
   }
   return { pass: reasons.length === 0, reasons, implementers: [...implementers], approvers, visual };

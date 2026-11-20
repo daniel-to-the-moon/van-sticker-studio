@@ -1,15 +1,14 @@
-# 独立性闸门（AGENTS §0/§3/§8，#114）
+# 独立性闸门（agent-governance-kit）
 #
 # 按 GitHub 身份（PR 作者、推送者、评审者、打标签者）判定：有非本体系对当前 head 的批准、
-# 没有未撤回的“要求修改”、可见改动有维护者的 visual-accepted 或 e2e 的 no-visual-change。
-# 结果以 mxgarage-vss-gate App 的身份写成 `independence-gate` 检查；规则集把该检查的来源
-# 限定为这个 App，所以 PR 里的工作流伪造不了它。
+# 没有未撤回的“要求修改”、可见改动有维护者的验收标签。结果以闸门 App 的身份写成
+# `independence-gate` 检查；规则集把该检查的来源限定为这个 App，PR 里的工作流伪造不了。
 #
 # 安全要点：
 # - 只用 pull_request_target / workflow_run / issue_comment / workflow_dispatch 触发，
 #   这些都从默认分支的工作流文件运行，PR 改不了本文件。
-# - 只检出默认分支，从不检出或执行 PR 代码。
-# - App 私钥放在 Environment `independence-gate`（部署分支仅限 main）。
+# - 只检出默认分支的闸门脚本与身份表，从不检出或执行 PR 代码。
+# - 闸门 App 私钥放在 Environment `independence-gate`（部署分支仅限默认分支）。
 
 name: independence-gate
 
@@ -55,7 +54,7 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           sparse-checkout: |
-            tools
+            tools/independence-gate.mjs
             .github/agent-identities.json
           sparse-checkout-cone-mode: false
           persist-credentials: false

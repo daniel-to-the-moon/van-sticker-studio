@@ -1,9 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import { evaluateGate, renderGate, systemOf } from '../tools/independence-gate.mjs';
+import { evaluateGate, isVisualPath, renderGate, systemOf } from '../tools/independence-gate.mjs';
 
-const config = JSON.parse(fs.readFileSync('.github/agent-identities.json', 'utf8'));
+// Fixture config (the shipped .github/agent-identities.json is a template).
+const config = {
+  systems: {
+    gpt: { members: ['GPT'], apps: ['mxgarage-vss-gpt'], emails: [] },
+    muse: { members: ['Muse'], apps: ['mxgarage-vss-muse'], emails: [] },
+    grok: { members: ['Grok'], apps: ['mxgarage-vss-grok'], emails: [] },
+    claude: { members: ['Claude'], apps: [], emails: ['noreply@anthropic.com'] },
+  },
+  maintainers: ['daniel-to-the-moon'],
+  automation: ['github-actions[bot]', 'web-flow', 'mxgarage-vss-gate[bot]'],
+  visual: {
+    include: ['^(app|components|hooks|lib|public)/', '\\.(css|tsx)$'],
+    exclude: ['\\.(md|txt)$', '^(docs|tests|tools|ops|\\.github)/', '^app/api/'],
+    acceptedLabel: 'visual-accepted',
+    unchangedLabel: 'no-visual-change',
+    unchangedLabeler: 'github-actions[bot]',
+  },
+};
 const HEAD = 'a'.repeat(40);
 const OLD = 'b'.repeat(40);
 const T0 = '2026-11-20T10:00:00Z';
@@ -155,6 +171,23 @@ void test('fork PRs and an unknown head push time fail closed', () => {
     labelEvents: [{ label: 'visual-accepted', actor: 'daniel-to-the-moon', createdAt: T1 }],
   };
   assert.match(evaluateGate(pr(visual), config).reasons.join('\n'), /推送时间/);
+});
+
+void test('visual paths follow config, and the check is off without config.visual', () => {
+  assert.equal(isVisualPath('components/a.tsx', config), true);
+  assert.equal(isVisualPath('app/api/version/route.ts', config), false);
+  assert.equal(isVisualPath('docs/a.md', config), false);
+  const noVisual = { ...config, visual: undefined };
+  const p = pr({ files: ['app/page.tsx'], reviews: [approve('mxgarage-vss-grok[bot]')] });
+  assert.equal(evaluateGate(p, noVisual).pass, true);
+  const noLabeler = { ...config, visual: { ...config.visual, unchangedLabeler: null } };
+  const e2e = pr({
+    files: ['app/page.tsx'],
+    reviews: [approve('mxgarage-vss-grok[bot]')],
+    labels: ['no-visual-change'],
+    labelEvents: [{ label: 'no-visual-change', actor: 'github-actions[bot]', createdAt: T1 }],
+  });
+  assert.equal(evaluateGate(e2e, noLabeler).pass, false);
 });
 
 void test('the report names head, implementers, approvers and reasons', () => {

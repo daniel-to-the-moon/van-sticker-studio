@@ -29,7 +29,7 @@ PR 推送、标签变化、评审提交/撤回时自动重算；也可以在 PR 
 
 ## 维护者一次性配置
 
-1. **建第 4 个 App** `mxgarage-vss-gate`：用 `vss-github-apps.html` 里的第 4 张卡（权限只有 Checks/Commit statuses 写、Contents/Pull requests/Issues 读）。生成私钥，安装到本仓库。
+1. **建第 4 个 App** `mxgarage-vss-gate`：用 `docs/process/setup-apps.html`（本地浏览器打开，前缀填 `mxgarage-vss`）里的 gate 卡（权限只有 Checks/Commit statuses 写、Contents/Pull requests/Issues 读）。生成私钥，安装到本仓库。
 2. **Environment**：Settings → Environments → New environment `independence-gate` → Deployment branches 选 *Selected branches*，只加 `main` → 加两个 secret：`GATE_APP_ID`（App ID）、`GATE_APP_PRIVATE_KEY`（整个 .pem 内容）。只限 main 是关键：PR 分支上的工作流拿不到这把私钥。
 3. **规则集**：Settings → Rules → Rulesets → New branch ruleset，目标 `main`：
    - Restrict deletions、Block force pushes

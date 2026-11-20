@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多 agent 协作：创建 GitHub App 与身份表</title>
+<style>
+  :root { --ink:#1d2321; --muted:#5d6763; --line:#d9dfdc; --bg:#f6f7f5; --card:#fff; --accent:#1f6f4a; --warn:#9a5b00; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.6 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; color:var(--ink); background:var(--bg); }
+  main { max-width:900px; margin:0 auto; padding:32px 20px 64px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  h2 { font-size:18px; margin:32px 0 12px; }
+  .lead { color:var(--muted); margin:0 0 16px; }
+  .note { border-left:3px solid var(--warn); background:#fff8ec; padding:10px 14px; margin:16px 0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:12px; }
+  .card h3 { margin:0 0 2px; font-size:16px; }
+  .who { color:var(--muted); font-size:13px; margin-bottom:10px; }
+  label { display:block; font-size:13px; color:var(--muted); }
+  input[type=text], select { width:100%; font:inherit; padding:7px 9px; border:1px solid var(--line); border-radius:6px; margin:2px 0 10px; background:#fff; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:0 14px; }
+  .sys { display:grid; grid-template-columns:140px 1fr auto; gap:8px; align-items:start; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  button, a.button { font:inherit; border:0; border-radius:7px; padding:8px 14px; cursor:pointer; text-decoration:none; display:inline-block; }
+  .primary { background:var(--accent); color:#fff; }
+  .ghost { background:transparent; border:1px solid var(--line); color:var(--ink); }
+  .small { padding:5px 10px; font-size:13px; }
+  .done { color:var(--accent); font-size:13px; }
+  pre { background:#eef1ef; padding:12px; border-radius:6px; overflow:auto; font-size:12px; white-space:pre; }
+  code { background:#eef1ef; padding:1px 5px; border-radius:4px; font-size:13px; }
+  ol li { margin:6px 0; }
+  @media (max-width:640px) { .grid2 { grid-template-columns:1fr; } .sys { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>多 agent 协作：创建 GitHub App 与身份表</h1>
+  <p class="lead">每个 agent 体系一个 GitHub App，外加一个只发 <code>independence-gate</code> 检查的闸门 App。一组 App 可以装到你名下任意多个仓库。</p>
+
+  <h2>1. 填基本信息</h2>
+  <div class="card">
+    <div class="grid2">
+      <label>App 属于
+        <select id="ownerType"><option value="user">我的个人账号</option><option value="org">一个组织</option></select>
+      </label>
+      <label id="orgWrap" hidden>组织名<input type="text" id="org" placeholder="my-org"></label>
+      <label>App 名前缀（全 GitHub 唯一）<input type="text" id="prefix" value="myagents"></label>
+      <label>维护者 GitHub 登录名（逗号分隔）<input type="text" id="maintainers" placeholder="your-github-login"></label>
+      <label>App 主页（任意你的网址，必填）<input type="text" id="homepage" value="https://github.com"></label>
+    </div>
+  </div>
+
+  <h2>2. 体系</h2>
+  <p class="lead">同一体系的成员互相不能算独立评审。没有归入任何体系的执行者不需要 App。</p>
+  <div class="card" id="systems"></div>
+  <button class="ghost small" id="addSystem" type="button">＋ 加一个体系</button>
+
+  <h2>3. 逐个创建 App</h2>
+  <div class="note">点按钮会在新标签页打开 GitHub 的创建页（浏览器需已登录 App 所属的账号），设置已预填，核对后点 <b>Create GitHub App</b>。私钥在 GitHub 上生成，不要发到聊天或仓库里。</div>
+  <div id="apps"></div>
+
+  <h2>4. 每个 App 创建后</h2>
+  <ol>
+    <li>记下 App ID；<b>Private keys → Generate a private key</b>。体系 App 的私钥交给对应 agent 平台；闸门 App 的私钥放进仓库 Environment（见 README）。</li>
+    <li><b>Install App</b> → <b>Only select repositories</b> → 选要用的仓库。以后加新项目，回到这里把新仓库加进去即可。</li>
+  </ol>
+
+  <h2>5. 身份表 <code>.github/agent-identities.json</code></h2>
+  <p class="lead">放进每个使用闸门的仓库。<code>visual</code> 段决定哪些文件算“可见改动”，按项目目录结构调整；不需要视觉验收就删掉整段。</p>
+  <div class="row" style="margin-bottom:8px"><button class="ghost small" id="copyJson" type="button">复制</button><span class="done" id="copyDone" hidden></span></div>
+  <pre id="json"></pre>
+</main>
+
+<script>
+  const AGENT_PERMS = {
+    contents: 'write', pull_requests: 'write', issues: 'write',
+    checks: 'write', statuses: 'write', workflows: 'write',
+    actions: 'read', metadata: 'read',
+  };
+  const GATE_PERMS = { checks: 'write', statuses: 'write', contents: 'read', pull_requests: 'read', issues: 'read', metadata: 'read' };
+  let systems = [
+    { key: 'gpt', members: 'GPT, codex' },
+    { key: 'muse', members: 'Muse' },
+    { key: 'grok', members: 'Grok' },
+  ];
+  const $ = (id) => document.getElementById(id);
+  const slug = (s) => s.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+  const list = (s) => s.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
+
+  function createUrl(name, description, perms) {
+    const q = new URLSearchParams();
+    q.set('name', name);
+    q.set('description', description);
+    q.set('url', $('homepage').value.trim() || 'https://github.com');
+    q.set('public', 'false');
+    q.set('webhook_active', 'false');
+    for (const [k, v] of Object.entries(perms)) q.set(k, v);
+    const org = slug($('org').value);
+    const base = $('ownerType').value === 'org' && org
+      ? `https://github.com/organizations/${org}/settings/apps/new`
+      : 'https://github.com/settings/apps/new';
+    return `${base}?${q}`;
+  }
+
+  function renderSystems() {
+    const box = $('systems');
+    box.innerHTML = '';
+    systems.forEach((sys, i) => {
+      const row = document.createElement('div');
+      row.className = 'sys';
+      row.innerHTML = `<label>体系代号<input type="text" data-k></label><label>成员（逗号分隔）<input type="text" data-m></label><button class="ghost small" type="button" style="margin-top:22px">删除</button>`;
+      const k = row.querySelector('[data-k]');
+      const m = row.querySelector('[data-m]');
+      k.value = sys.key;
+      m.value = sys.members;
+      k.addEventListener('input', () => { sys.key = k.value; render(); });
+      m.addEventListener('input', () => { sys.members = m.value; render(); });
+      row.querySelector('button').addEventListener('click', () => { systems.splice(i, 1); renderSystems(); render(); });
+      box.appendChild(row);
+    });
+  }
+
+  function appCard(name, who, perms) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<h3></h3><div class="who"></div><div class="row"><a class="button primary" target="_blank" rel="noopener">在 GitHub 创建</a><button class="ghost" type="button">复制链接</button><span class="done" hidden></span></div>`;
+    card.querySelector('h3').textContent = name;
+    card.querySelector('.who').textContent = who;
+    const link = card.querySelector('a');
+    const done = card.querySelector('.done');
+    link.href = createUrl(name, `agent 身份：${who}。由维护者创建并负责。`, perms);
+    link.addEventListener('click', () => { done.textContent = '已在新标签页打开；没看到就用“复制链接”'; done.hidden = false; });
+    card.querySelector('button').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(link.href); done.textContent = '链接已复制'; }
+      catch { done.textContent = '复制被拦下：右键“在 GitHub 创建”→ 复制链接地址'; }
+      done.hidden = false;
+    });
+    return card;
+  }
+
+  function render() {
+    $('orgWrap').hidden = $('ownerType').value !== 'org';
+    const prefix = slug($('prefix').value) || 'myagents';
+    const apps = $('apps');
+    apps.innerHTML = '';
+    const valid = systems.filter((s) => slug(s.key));
+    for (const s of valid)
+      apps.appendChild(appCard(`${prefix}-${slug(s.key)}`, `${slug(s.key)} 体系（${list(s.members).join('、') || '未填成员'}）`, AGENT_PERMS));
+    apps.appendChild(appCard(`${prefix}-gate`, '独立性闸门：只发 independence-gate 检查，私钥只放仓库 Environment，不交给任何 agent', GATE_PERMS));
+
+    const identities = {
+      _comment: '体系 → GitHub 身份。App 写 slug（bot 登录名为 <slug>[bot]）。改动本文件属维护者保留项。',
+      systems: Object.fromEntries(valid.map((s) => [slug(s.key), { members: list(s.members), apps: [`${prefix}-${slug(s.key)}`], emails: [] }])),
+      maintainers: list($('maintainers').value).length ? list($('maintainers').value) : ['your-github-login'],
+      automation: ['github-actions[bot]', 'web-flow', `${prefix}-gate[bot]`],
+      visual: {
+        include: ['^(app|components|pages|src|public|styles)/', '\\.(css|scss|tsx|jsx|vue|svelte|html)$'],
+        exclude: ['\\.(md|txt)$', '^(docs|tests?|tools|scripts|\\.github)/', '^app/api/', '\\.test\\.', '\\.spec\\.'],
+        acceptedLabel: 'visual-accepted',
+        unchangedLabel: 'no-visual-change',
+        unchangedLabeler: null,
+      },
+    };
+    $('json').textContent = JSON.stringify(identities, null, 2);
+  }
+
+  for (const id of ['ownerType', 'org', 'prefix', 'maintainers', 'homepage']) $(id).addEventListener('input', render);
+  $('addSystem').addEventListener('click', () => { systems.push({ key: '', members: '' }); renderSystems(); render(); });
+  $('copyJson').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('json').textContent); $('copyDone').textContent = '已复制'; }
+    catch { $('copyDone').textContent = '复制被拦下：手动选中上面的文本复制'; }
+    $('copyDone').hidden = false;
+  });
+  renderSystems();
+  render();
+</script>
+</body>
+</html>
