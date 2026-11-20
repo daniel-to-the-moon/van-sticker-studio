@@ -90,7 +90,9 @@ jobs:
         run: npx playwright test -c playwright.config.mjs
       - name: Stop head server
         if: always()
-        run: pkill -f "wrangler dev" || true
+        run: |
+          pkill -f "wrangler dev" || true
+          echo "--- wrangler dev (head) log tail ---"; tail -n 80 wrangler-8787.log || true
       - name: Serve base and capture its screenshots
         id: base_e2e
         if: steps.base_checkout.outcome == 'success'
@@ -129,6 +131,8 @@ jobs:
           if [ "$same" = "true" ] && [ "$HEAD_OK" = "success" ]; then
             gh api "repos/$repo/issues/$PR/labels" -f "labels[]=no-visual-change" > /dev/null
             note="所有视图与 base 相同，已自动打 \`no-visual-change\`。"
+          elif [ "$same" = "true" ]; then
+            note="截图与 base 相同，但关键路径失败（见 run 日志），未打标签。"
           else
             if grep -qx "no-visual-change" <<<"$labels"; then
               gh api -X DELETE "repos/$repo/issues/$PR/labels/no-visual-change" > /dev/null || true

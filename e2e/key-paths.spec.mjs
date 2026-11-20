@@ -63,8 +63,9 @@ test('home: 3D view, honest AI state, sample applied to the van', async ({ page,
   await page.getByRole('button', { name: 'Try these ideas first' }).click();
   const cards = page.locator('button.concept-card');
   await expect(cards).toHaveCount(4);
+  // Clicking a sample card applies it directly (chooseDesign → applyDesign).
   await cards.first().click();
-  await page.getByRole('button', { name: 'Apply this design' }).click();
+  await expect(cards.first()).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: 'Applied to the van' })).toBeVisible({ timeout: 90_000 });
   await page.waitForTimeout(SETTLE_MS);
   await shot(page, 'home-sample-applied');
