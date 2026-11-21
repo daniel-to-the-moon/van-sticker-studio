@@ -42,7 +42,16 @@
 
 ## 三、怎么用
 
-- **派活**：开一个 issue（一件事、可勾选的验收标准），由维护者打 `devloop` 标签。打上即触发、即视为授权；issue 正文就是冻结 spec。devloop 一次只做一项：上一项的 PR 合并或关闭、blocked 的项处理完之前，新打标签的 issue 会停下并加 `needs-user`，之后手动重跑即可。
+- **派活**：开一个 issue（一件事、可勾选的验收标准），并在正文里声明**冻结文件范围**，然后由维护者打 `devloop` 标签。打上即触发、即视为授权；issue 正文（含范围）就是冻结 spec。范围写成一个代码块，每行一个允许改动的路径或模式（`*` 可跨目录，`#` 开头为注释；测试 `tests/`、`*.test.*` 默认允许）：
+
+  ````
+  ```devloop-scope
+  lib/sticker-layout.ts
+  components/editor/*
+  ```
+  ````
+
+  没写范围的 issue 不开工。devloop 一次只做一项：上一项的 PR 合并或关闭、blocked 的项处理完之前，新打标签的 issue 会停下并加 `needs-user`，之后手动重跑即可。
 - **看结果**：issue 上先出现 claim（含 run、完整 base SHA、正文 sha256），成功后开 **Draft** PR，分支 `feature/<N>-claude-devloop`，正文按 PR 模板写，每个提交带 `Executor: Claude（devloop 云端）` trailer。独立评审通过后由评审方转 Ready（§13 要求合并时非 Draft）。
 - **停下等人**：开工前有冲突、Claude 判断命中停止条件、云端失败、发布前核对不通过时，在 issue / PR 留说明并加 `needs-user`。
 - **重试**：失败不会自动重派。排除原因后由维护者手动触发——实现：`gh workflow run claude.yml -f issue=<号>`；修复：`gh workflow run claude.yml -f pr=<号>`。手动触发会放行带 `needs-user` 的 issue / PR，成功推送后自动去掉 `needs-user`；标签事件和评论事件不放行 `needs-user`。
@@ -57,25 +66,28 @@
 - 全局互斥锁：仓库标签 `devloop-lock`，创建是原子操作（已存在则失败），描述写持有者 `issue #N run <id>`；从开工前持有到发布结束，只由持有者释放。防止两次运行同时写代码。
 - AGENTS §10 每人最多一个活动实现：devloop 在其他分支上还有开放 PR（等待评审 / 合并），或有其他 blocked 的实现（带 devloop claim 且 `needs-user` 的 issue），就不开新的。blocked 不释放名额，锁释放也不等于名额或文件锁可以交接；失败留证后不自动重派，由维护者处理后手动重跑同一项。
 - 任务 issue 上有其他执行者的 claim（首行以“执行者：”开头、含 claim / 认领），按 §11 先发者为准。只有 Actions 发出、首行为“执行者：Claude（devloop 云端）”且带 devloop-claim 标记的评论算 devloop 自己的；正文引用该标记或冒用首行的都算他人。
+- 任务 issue 必须打开、带 `devloop`、无 `hold`，正文里有冻结文件范围（`devloop-scope` 代码块）。
+- 外部认领冲突：其他执行者的开放 PR（非 devloop 分支）改动了范围内的文件，或其他 issue 上他人的 claim 提到了范围内的路径（取每个模式通配符之前、至少 3 个字符的字面部分）。只能发现已开 PR 或在 claim 里写明路径的冲突；共享类型、接口这类语义冲突靠评审。
 - 实现另查：本任务已有开放 PR（`feature/<N>-*` 或 `fix/<N>-*`）；远端已有 `feature/<N>-claude-devloop` 分支（上次的成果，不覆盖）。
-- 修复另查：任务 issue（取自分支名 `feature/<issue>-…-claude-devloop`）上必须有 devloop 的实现 claim，且 issue 正文的 sha256 与那次 claim 一致（spec 被改过就要重新认领，不在旧 PR 上修）；PR 上没有他人 claim。通过后在 PR 上发修订 claim（run、PR head、spec、所针对评审的哈希）。
+- 修复另查：任务 issue（取自分支名 `feature/<issue>-…-claude-devloop`）上必须有 devloop 的实现 claim，且 issue 正文的 sha256 与那次 claim 一致（spec 被改过就要重新认领，不在旧 PR 上修）；PR 上没有他人 claim；PR 上必须有**可信评审**——仓库所有者账号发出、首行为“执行者：GPT”的评论，取最新一条并固定（链接 + 正文哈希），Claude 只按这一条修，其他评论都只是数据。通过后在 PR 上发修订 claim（run、PR head、spec、评审链接与哈希）。
 - `devloop-running` 只是给人看的运行中标记。
 
-**上传前（work 任务最后一步 / pack.sh）**：产物一离开 runner 就不受推送核对保护，所以先过同样的核对，只上传明确的文件（`outcome`、`body.md`、`title.txt`、`work.bundle`、`recovery.bundle`）：
+**上传前（work 任务最后一步 / pack.sh）**：产物一离开 runner 就不受推送核对保护，所以先过同样的核对。Claude 写的说明在它可写的目录里，只当输入；pack 先清空并新建上传目录，只把核对通过的明确文件（`outcome`、`body.md`、`title.txt`、`work.bundle`、`recovery.bundle`）写进去。工作流只上传这个目录，且只在 pack 成功退出时上传：核对过程任何意外错误都不上传任何产物，publish 报“没有产物”并加 `needs-user`。Claude 步骤失败与核对不通过分开处理，前者进入保全，后者不打包 `work.bundle`：
 
 - `work.bundle`：只在 outcome=pr 时产出，先过下面第 5、6 条的边界核对，并扫描提交内容里是否出现本任务的密钥值（订阅令牌、API key、`GITHUB_TOKEN`）；不通过就不打包、改为 needs-user。
-- `recovery.bundle`：不发布但有改动时的恢复快照。只含批准范围内的净工作树（单个提交，不带中间历史；禁止路径与符号链接不纳入，说明里列出未纳入的路径名），也过密钥扫描；扫描命中就不上传，只报告状态。
-- `body.md` / `title.txt`：含本任务密钥值就整份丢弃，只留状态说明。
+- `work.bundle` 另需满足冻结文件范围（与推送前第 6 条相同）。
+- `recovery.bundle`：不发布但有改动时的恢复快照。只含冻结范围内、非禁止路径、非符号链接的净工作树（单个提交，不带中间历史；未纳入的路径名列在说明里），也过密钥扫描；扫描命中就不上传，只报告状态。
+- `body.md` / `title.txt`：所有核对与保全说明都写完之后再做最终扫描，含本任务密钥值就整份换成不含路径与原文的状态说明。
 - 扫描对象是 bundle 实际带出去的全部对象（提交信息、树、所有文件内容，含二进制与合并提交解决冲突时写入的内容）；内容先完整写入临时文件再比对，扫描出错一律按命中处理。局限：只比对本任务可见的这几个值，经过编码或变形的值认不出。
 
 **推送前（publish.sh）**，任一不通过就不推送：
 
 1. 开关：`DEVLOOP_ENABLED=true` 且未 `DEVLOOP_PAUSED`（在 publish 任务开始时求值）；
-2. 实时状态：issue / PR 仍打开、无 `hold`、实现时仍带 `devloop`、修复时 PR 分支未变；
+2. 实时状态：issue / PR 仍打开、无 `hold`、实现时仍带 `devloop`；修复时 PR 分支未变，任务 issue 仍打开、带 `devloop`、无 `hold`，所依据的评审仍是最新的可信评审且未被修改；冻结范围仍在，且没有新出现的外部认领冲突；
 3. 认领：目标 issue / PR 上有本次 run 由 Actions 发出的 claim，issue 与 PR 上之后都没有他人 claim；任务 issue 正文的 sha256 与 claim 时一致；
 4. 准确基线：实现时 main 仍是 claim 里的 base（main 前进就停，不在发布阶段 rebase，受测树就是推送树），目标分支不存在；修复时分支 head 仍是开工时的 SHA；
 5. 文件边界：相对 main 的净改动，**以及每一个待推送的提交**（中间提交加入又删除的文件也会随历史推上去；合并提交只看它自己引入的改动；路径按 NUL 分隔的原始字节匹配，非 ASCII、空格、换行都不会因转义漏判）都不碰禁止路径（`scripts/devloop/lib.sh`：GLB 与 `public/model/`、`dist/`、`.github/`、`.openai/`、`.env*`、`.dev.vars*`、`package.json` / `package-lock.json`、constitution / AGENTS / CLAUDE、`.claude/`、`scripts/devloop/`、`wrangler.*`），任何待推送提交都不新增符号链接；每个待推送的提交（含合并提交）都带 `Executor: Claude（devloop 云端）`；
-6. 修复的冻结文件范围：只能改 PR 在开工时已改动的文件，以及 `tests/`、`docs/` 与 `*.test.*`；越界要维护者重新认领。
+6. 冻结文件范围：实现与修复都只能改 issue 声明的范围与测试（`tests/`、`*.test.*`），修复另允许 PR 在开工时已改动的文件；越界要维护者改 spec 并重新认领。
 
 ## 五、Claude 不写代码、直接 needs-user 的情况
 

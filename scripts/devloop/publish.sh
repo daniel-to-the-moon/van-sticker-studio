@@ -2,7 +2,8 @@
 # claude.yml publish 任务：发布前二次核对，全部通过才把 work 产出的提交推到 feature/*-claude-devloop 分支，并开 Draft PR 或评论。
 # 由 claude.test.mjs 用假 gh + 真 git 测试。本脚本来自 main（可信），不检出、不执行 PR 里的任何代码。
 # 输入（环境变量）：OUT（work 产物目录）、REPO、N、MODE、ISSUE（任务所属 issue）、BRANCH、START（preflight 记录的准确基线）、EVENT、RUN_ID、RUN_URL、
-#   PUSH_URL（git 远端地址）、ENABLED / PAUSED（本任务开始时的仓库变量 DEVLOOP_ENABLED / DEVLOOP_PAUSED）、SPEC（claim 时的 spec 哈希）
+#   PUSH_URL（git 远端地址）、ENABLED / PAUSED（本任务开始时的仓库变量 DEVLOOP_ENABLED / DEVLOOP_PAUSED）、SPEC（claim 时的 spec 哈希）、
+#   OWNER（仓库所有者登录名）、REVIEW_URL / REVIEW（fix：claim 时固定的可信评审链接与正文哈希）
 # 核对不通过：评论原因 + 加 needs-user，不写入（exit 0）。命令本身失败（非零）时由调用方的 failure() 步骤报告。
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
@@ -50,7 +51,9 @@ if [ "$MODE" = "implement" ]; then
 else
   target=$(gh pr view "$N" -R "$REPO" --json state,labels,headRefName,comments)
   why=$(jq -r --arg b "$BRANCH" 'if .state != "OPEN" then "PR 已关闭" elif .headRefName != $b then "PR 分支已变化" elif ([.labels[].name] | index("hold")) != null then "PR 已加 hold" else "ok" end' <<<"$target")
-  issue=$(gh issue view "$ISSUE" -R "$REPO" --json body,comments)
+  issue=$(gh issue view "$ISSUE" -R "$REPO" --json state,labels,body,comments)
+  t=$(jq -r '[.labels[].name] as $l | if .state != "OPEN" then "任务 issue 已关闭" elif ($l | index("devloop")) == null then "任务 issue 的 devloop 标签已被移除" elif ($l | index("hold")) != null then "任务 issue 已加 hold" else "ok" end' <<<"$issue")
+  [ "$t" = "ok" ] || why=$t
 fi
 [ "$why" = "ok" ] || stop "$why。"
 [ "$(own_claims "$RUN_ID" <<<"$target")" != "0" ] || stop "找不到本次运行（run $RUN_ID）由 Actions 发出的 claim。"
@@ -59,6 +62,18 @@ for j in "$target" "$issue"; do
   [ -z "$others" ] || stop "运行期间出现了其他执行者的 claim（$others），按 AGENTS §11 先发者为准。"
 done
 [ -n "${SPEC:-}" ] && [ "$(spec_hash <<<"$issue")" = "$SPEC" ] || stop "issue #$ISSUE 正文（冻结 spec）在运行期间被修改，按新 spec 重新开工。"
+if [ "$MODE" = "fix" ]; then
+  # 修复所依据的评审仍是最新的可信评审，且未被修改
+  tr=$(trusted_review "${OWNER:?}" <<<"$target")
+  [ -n "${REVIEW_URL:-}" ] && [ "$(sed -n 1p <<<"$tr")" = "$REVIEW_URL" ] || stop "所依据的评审已过时（PR 上出现了更新的可信评审），按新评审重跑修复。"
+  [ "$(sed -n 2p <<<"$tr")" = "${REVIEW:-}" ] || stop "所依据的评审在运行期间被修改，按修改后的评审重跑修复。"
+fi
+# 冻结文件范围（随 spec 冻结）与外部认领冲突，开工后可能出现新的冲突
+scope=$(mktemp)
+scope_patterns <<<"$issue" > "$scope"
+[ -s "$scope" ] || stop "issue #$ISSUE 正文没有冻结文件范围（devloop-scope 代码块）。"
+conflicts=$(external_conflicts "$scope" "$ISSUE")
+[ -z "$conflicts" ] || stop "运行期间出现外部认领冲突：$(printf '%s' "$conflicts" | join_lines '；')。"
 
 work=$(mktemp -d)
 git init -q "$work"
@@ -84,12 +99,10 @@ fi
 #    相对 main 的净改动 + 每个待推送提交（中间提交加入又删除的文件也会随历史推上去）；路径按 NUL 分隔原始路径匹配
 git cat-file -e "$main^{commit}" 2>/dev/null || git fetch -q origin "$main"
 v=$(boundary_violations "$START" "$main" "$new")
-[ -z "$v" ] || stop "$(printf '%s' "$v" | paste -sd '；' -)"
-# 6. 修复限于冻结文件范围：PR 在 base 时已改动的文件 + tests/、docs/
-if [ "$MODE" = "fix" ]; then
-  v=$(scope_violations "$START" "$main" "$new")
-  [ -z "$v" ] || stop "$(printf '%s' "$v" | paste -sd '；' -)。超出范围的修改需要维护者重新认领。"
-fi
+[ -z "$v" ] || stop "$(printf '%s' "$v" | join_lines '；')"
+# 6. 冻结文件范围：issue 声明的范围 + 测试；修复另允许 PR 在 base 时已改动的文件
+v=$(scope_violations "$START" "$main" "$new" "$scope" "$([ "$MODE" = "fix" ] && echo pr || true)")
+[ -z "$v" ] || stop "$(printf '%s' "$v" | join_lines '；')。超出范围的修改需要维护者改 spec 并重新认领。"
 
 # 核对全部通过：普通推送（分支在此期间被别人更新导致非快进则失败，不覆盖）
 git push -q origin "$new:refs/heads/$BRANCH"

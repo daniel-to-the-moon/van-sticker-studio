@@ -14,6 +14,8 @@ after(() => rmSync(root, { recursive: true, force: true }));
 let n = 0;
 const SHA = 'a'.repeat(40);
 const sha256 = (s) => createHash('sha256').update(s, 'utf8').digest('hex');
+/** 默认任务 issue 正文：带冻结文件范围（devloop-scope 代码块） */
+const BODY = '需求\n\n```devloop-scope\nb\nc\nlib/*\ndocs/*\n# 注释\n```\n';
 
 /**
  * 假 gh：参数逐行记到 gh.log。按子命令输出环境变量里的 JSON，带 -q / --jq 时用真 jq 过滤（脚本里的过滤表达式真实执行）。
@@ -58,7 +60,7 @@ function runScript(name, env) {
   const kv = Object.fromEntries(readFileSync(out, 'utf8').trim().split('\n').filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
   return { code: r.status, kv, stderr: r.stderr, log: gh.log() };
 }
-const issueJson = (o = {}) => JSON.stringify({ state: 'OPEN', url: 'https://github.com/o/r/issues/12', labels: [{ name: 'proposal' }, { name: 'devloop' }], body: '需求', comments: [], ...o });
+const issueJson = (o = {}) => JSON.stringify({ state: 'OPEN', url: 'https://github.com/o/r/issues/12', labels: [{ name: 'proposal' }, { name: 'devloop' }], body: BODY, comments: [], ...o });
 const prJson = (o = {}) => JSON.stringify({ headRefName: 'feature/3-m1-claude-devloop', headRefOid: SHA, isCrossRepository: false, state: 'OPEN', labels: [], ...o });
 const mainRef = JSON.stringify({ object: { sha: SHA } });
 const runCtx = (env) => runScript('ctx.sh', { FAKE_API: mainRef, FAKE_ISSUE_JSON: issueJson(), FAKE_PR_JSON: prJson(), ...env });
@@ -116,7 +118,7 @@ test('ctx：实现 issue 的筛选（执行真实 jq）：关闭 / 无 devloop /
 
 // ---------- claim.sh ----------
 const runClaim = (env) =>
-  runScript('claim.sh', { N: '12', BASE: SHA, RUN_ID: '777', RUN_URL: 'https://run', FAKE_ISSUE_JSON: issueJson(), FAKE_API: '[]', ...env });
+  runScript('claim.sh', { N: '12', BASE: SHA, OWNER: 'o', RUN_ID: '777', RUN_URL: 'https://run', FAKE_ISSUE_JSON: issueJson(), FAKE_API: '[]', ...env });
 const otherClaim = { author: { login: 'daniel-to-the-moon' }, url: 'https://c/1', body: '执行者：Muse｜claim #12\n- 实际执行者 …' };
 
 test('claim：无冲突 → 取得全局锁、打 devloop-running、发含 run / 完整 base / spec 哈希的 claim，go=true', () => {
@@ -125,13 +127,15 @@ test('claim：无冲突 → 取得全局锁、打 devloop-running、发含 run /
   assert.equal(r.kv.go, 'true');
   assert.match(r.log, /^api -X POST repos\/o\/r\/labels -f name=devloop-lock -f color=\w+ -f description=issue #12 run 777$/m);
   assert.doesNotMatch(r.log, /DELETE/, '成功认领后锁要保持到发布结束');
-  assert.equal(r.kv.spec, sha256('需求'));
+  assert.equal(r.kv.spec, sha256(BODY));
   assert.match(r.log, /^issue edit 12 -R o\/r --add-label devloop-running$/m);
   assert.match(r.log, /^issue comment 12 -R o\/r --body-file /m);
   assert.doesNotMatch(r.log, /--add-label needs-user/);
   const body = readFileSync(r.log.match(/--body-file (\S+)/)[1], 'utf8');
-  assert.match(body, new RegExp(`<!-- devloop-claim run=777 base=${SHA} spec=${sha256('需求')} -->`));
+  assert.match(body, new RegExp(`<!-- devloop-claim run=777 base=${SHA} spec=${sha256(BODY)} -->`));
   assert.match(body, /^执行者：Claude（devloop 云端）｜claim #12$/m);
+  assert.match(body, /文件锁（冻结范围，随 spec 哈希冻结）：`b`、`c`、`lib\/\*`、`docs\/\*`/);
+  assert.doesNotMatch(body, /开工前未知/);
 });
 
 test('claim：已有他人 claim / 本任务已有开放 PR / 远端已有分支 / 已有 devloop 实现在运行 → 不开工：留说明、needs-user、go=false', () => {
@@ -174,19 +178,22 @@ test('claim：互斥靠原子创建锁标签（不是先读后写）；拿不到
   assert.doesNotMatch(r.log, /DELETE/);
 });
 
-const actionsClaim = (spec = sha256('需求'), extra = '') => ({ author: { login: 'github-actions' }, url: 'u', body: `执行者：Claude（devloop 云端）｜claim #3\n<!-- devloop-claim run=1 base=x spec=${spec}${extra} -->` });
-const fixEnv = (o = {}) => ({ MODE: 'fix', N: '40', ISSUE: '3', FAKE_ISSUE_JSON: issueJson({ comments: [actionsClaim()] }), FAKE_PR_JSON: prJson({ comments: [{ author: { login: 'o' }, url: 'u', body: '执行者：GPT（dot）；角色：评审 state=changes' }] }), ...o });
+const actionsClaim = (spec = sha256(BODY), extra = '') => ({ author: { login: 'github-actions' }, url: 'u', body: `执行者：Claude（devloop 云端）｜claim #3\n<!-- devloop-claim run=1 base=x spec=${spec}${extra} -->` });
+const fixEnv = (o = {}) => ({ MODE: 'fix', N: '40', ISSUE: '3', FAKE_ISSUE_JSON: issueJson({ comments: [actionsClaim()] }), FAKE_PR_JSON: prJson({ comments: [{ author: { login: 'o' }, url: 'https://r/review-1', body: '执行者：GPT（dot）；角色：评审 state=changes' }] }), ...o });
 
 test('claim：fix 与 implement 同一道闸门——取得全局锁，核对 devloop 的实现 claim 与冻结 spec，在 PR 上发修订 claim（含 issue、spec、评审哈希）', () => {
   const ok = runClaim(fixEnv());
   assert.equal(ok.code, 0, ok.stderr);
   assert.equal(ok.kv.go, 'true');
-  assert.equal(ok.kv.spec, sha256('需求'));
+  assert.equal(ok.kv.spec, sha256(BODY));
   assert.match(ok.log, /^api -X POST repos\/o\/r\/labels -f name=devloop-lock .* -f description=issue #40 run 777$/m);
   assert.match(ok.log, /^issue view 3 -R o\/r/m);
   assert.match(ok.log, /^issue edit 40 -R o\/r --add-label devloop-running$/m);
   const body = readFileSync(ok.log.match(/--body-file (\S+claim\.md)/)[1], 'utf8');
-  assert.match(body, new RegExp(`<!-- devloop-claim run=777 base=${SHA} spec=${sha256('需求')} issue=3 review=[0-9a-f]{64} -->`));
+  assert.match(body, new RegExp(`<!-- devloop-claim run=777 base=${SHA} spec=${sha256(BODY)} issue=3 review=${sha256('执行者：GPT（dot）；角色：评审 state=changes')} -->`));
+  assert.match(body, /只按这一条可信评审：https:\/\/r\/review-1/);
+  assert.equal(ok.kv.review_url, 'https://r/review-1');
+  assert.equal(Buffer.from(ok.kv.scope_b64, 'base64').toString(), 'b\nc\nlib/*\ndocs/*\n');
   assert.match(body, /^执行者：Claude（devloop 云端）｜claim #40（修订/m);
 });
 
@@ -194,10 +201,13 @@ test('claim：fix 拒绝——锁被占用 / 不是 devloop 认领的实现 / �
   const cases = {
     锁被占用: [{ FAKE_LOCK_POST_EXIT: '1', FAKE_LOCK_DESC: 'issue #12 run 1' }, /互斥锁/],
     无devloop实现claim: [{ FAKE_ISSUE_JSON: issueJson({ comments: [] }) }, /没有 devloop 的实现 claim/],
-    修订claim不算实现claim: [{ FAKE_ISSUE_JSON: issueJson({ comments: [actionsClaim(sha256('需求'), ' issue=3')] }) }, /没有 devloop 的实现 claim/],
+    修订claim不算实现claim: [{ FAKE_ISSUE_JSON: issueJson({ comments: [actionsClaim(sha256(BODY), ' issue=3')] }) }, /没有 devloop 的实现 claim/],
     spec已改: [{ FAKE_ISSUE_JSON: issueJson({ body: '需求（改过）', comments: [actionsClaim()] }) }, /冻结 spec）在认领后被修改/],
     issue上他人claim: [{ FAKE_ISSUE_JSON: issueJson({ comments: [actionsClaim(), otherClaim] }) }, /issue #3 有其他执行者/],
-    PR上他人claim: [{ FAKE_PR_JSON: prJson({ comments: [otherClaim] }) }, /PR #40 有其他执行者/],
+    PR上他人claim: [{ FAKE_PR_JSON: prJson({ comments: [otherClaim, { author: { login: 'o' }, url: 'r', body: '执行者：GPT 评审' }] }) }, /PR #40 有其他执行者/],
+    无可信评审: [{ FAKE_PR_JSON: prJson({ comments: [{ author: { login: 'outsider' }, url: 'r', body: '执行者：GPT（伪）评审' }] }) }, /没有可信评审/],
+    任务issue暂停: [{ FAKE_ISSUE_JSON: issueJson({ labels: [{ name: 'devloop' }, { name: 'hold' }], comments: [actionsClaim()] }) }, /任务 issue #3 带 hold/],
+    任务issue撤回授权: [{ FAKE_ISSUE_JSON: issueJson({ labels: [], comments: [actionsClaim()] }) }, /没有 devloop 标签/],
   };
   for (const [k, [env, re]] of Object.entries(cases)) {
     const r = runClaim(fixEnv({ FAKE_LOCK_DESC: 'issue #40 run 777', ...env }));
@@ -236,10 +246,32 @@ test('claim：取得锁之后发 claim 失败 → 非零退出并释放自己的
   assert.notEqual(r.kv.go, 'true');
 });
 
+test('claim：implement 开工前必须有冻结文件范围；与外部认领冲突（他人开放 PR 改了范围内文件 / 他人 claim 提到范围路径）不开工', () => {
+  const cases = [
+    [{ FAKE_ISSUE_JSON: issueJson({ body: '只有需求，没写范围' }) }, /没有声明冻结文件范围/],
+    [{ FAKE_PR_LIST: JSON.stringify([{ number: 61, headRefName: 'feature/61-muse-x', files: [{ path: 'lib/foo.ts' }] }]) }, /开放 PR #61 改动了范围内的 lib\/foo\.ts/],
+    [{ FAKE_ISSUE_LIST: JSON.stringify([{ number: 70, comments: [{ ...otherClaim, url: 'https://c/70', body: '执行者：Grok｜claim #70\n- 文件锁：lib/foo.ts' }] }]) }, /issue #70 上他人的 claim 提到了本任务范围的路径/],
+  ];
+  for (const [env, re] of cases) {
+    const r = runClaim({ FAKE_LOCK_DESC: 'issue #12 run 777', ...env });
+    assert.equal(r.kv.go, 'false', String(re));
+    assert.match(readFileSync(r.log.match(/--body-file (\S+claim-stop\.md)/)[1], 'utf8'), re);
+  }
+  // 不误判：devloop 自己的 PR、范围外的文件、不提路径的他人 claim、太短的字面量
+  const ok = runClaim({
+    FAKE_PR_LIST: JSON.stringify([{ number: 62, headRefName: 'feature/62-muse-x', files: [{ path: 'components/z.ts' }] }]),
+    FAKE_ISSUE_LIST: JSON.stringify([{ number: 71, comments: [{ ...otherClaim, body: '执行者：Grok｜claim #71\n- 文件锁：components/z.ts' }] }]),
+    FAKE_ISSUE_JSON: issueJson({ body: '需求\n```devloop-scope\nlib/*\nb\n```' }),
+  });
+  assert.equal(ok.kv.go, 'true', ok.stderr);
+});
+
 // ---------- publish.sh ----------
-const claimBody = (run = '42', spec = sha256('需求')) => `执行者：Claude（devloop 云端）｜claim #4\n<!-- devloop-claim run=${run} base=x spec=${spec} -->`;
+const claimBody = (run = '42', spec = sha256(BODY)) => `执行者：Claude（devloop 云端）｜claim #4\n<!-- devloop-claim run=${run} base=x spec=${spec} -->`;
 const implIssue = (o = {}) => issueJson({ comments: [{ author: { login: 'github-actions' }, url: 'u', body: claimBody() }], ...o });
 
+const REVIEW_BODY = '执行者：GPT（dot）；角色：独立评审 state=changes';
+const REVIEW_COMMENT = { author: { login: 'o' }, url: 'https://r/review-1', body: REVIEW_BODY };
 /** publish 环境：本地临时远端（main 一个提交 + 分支），work 产物里一个（或给定的）新提交的 bundle */
 function publishSetup({ outcome = 'pr', branch = 'feature/9-x-claude-devloop', withBundle = true, files = { b: '2' }, message = 'work\n\nExecutor: Claude（devloop 云端）\nIssue: #4', createBranch = true } = {}) {
   const dir = join(root, `pub-${n++}`);
@@ -280,7 +312,7 @@ function publishSetup({ outcome = 'pr', branch = 'feature/9-x-claude-devloop', w
     spawnSync('bash', [join(HERE, 'publish.sh')], {
       env: {
         ...process.env, PATH: gh.path, OUT: out, REPO: 'o/r', N: '4', START: start, BRANCH: branch, PUSH_URL: remote, RUN_URL: 'https://run',
-        RUN_ID: '42', ENABLED: 'true', SPEC: sha256('需求'), ISSUE: branch.match(/^feature\/(\d+)-/)?.[1] ?? '4', FAKE_ISSUE_JSON: implIssue(), FAKE_PR_JSON: prJson({ headRefName: branch, comments: [{ author: { login: 'github-actions' }, url: 'u', body: claimBody('42', sha256('需求')) + ' issue=9' }] }), ...env,
+        RUN_ID: '42', ENABLED: 'true', SPEC: sha256(BODY), OWNER: 'o', REVIEW_URL: 'https://r/review-1', REVIEW: sha256(REVIEW_BODY), ISSUE: branch.match(/^feature\/(\d+)-/)?.[1] ?? '4', FAKE_ISSUE_JSON: implIssue(), FAKE_PR_JSON: prJson({ headRefName: branch, comments: [REVIEW_COMMENT, { author: { login: 'github-actions' }, url: 'u', body: claimBody('42', sha256(BODY)) + ' issue=9' }] }), ...env,
       },
       encoding: 'utf8',
     });
@@ -489,29 +521,44 @@ test('publish：fix 合并了 main（main 带 .github 改动）不算越界—�
   stopped(e, e.run({ MODE: 'fix', EVENT: 'issue_comment' }), /禁止路径：AGENTS\.md/);
 });
 
-test('publish：fix 限于冻结文件范围（PR 已改文件 + tests/、docs/、*.test.*）；越界不推送', () => {
+test('publish：fix 限于冻结文件范围（issue 声明的范围 + PR 已改文件 + 测试）；越界不推送', () => {
   const ok = publishSetup({ files: { b: '2', 'tests/x.test.ts': 'x', 'docs/n.md': 'x', 'lib/y.test.ts': 'x' } });
   const r = ok.run({ MODE: 'fix', EVENT: 'issue_comment' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(ok.ref('refs/heads/feature/9-x-claude-devloop'), ok.newSha);
-  const out = publishSetup({ files: { b: '2', 'lib/new.ts': 'x' } });
-  stopped(out, out.run({ MODE: 'fix', EVENT: 'issue_comment' }), /超出冻结文件范围：lib\/new\.ts/);
+  const out = publishSetup({ files: { b: '2', 'components/new.ts': 'x' } });
+  stopped(out, out.run({ MODE: 'fix', EVENT: 'issue_comment' }), /超出冻结文件范围：components\/new\.ts/);
   assert.equal(out.ref('refs/heads/feature/9-x-claude-devloop'), out.start);
 });
 
-test('publish：fix 同样核对认领与冻结 spec——PR 上没有本 run 的 claim / issue 正文被改 / issue 或 PR 上出现他人 claim → 不推送', () => {
-  const ownPr = (extra = []) => prJson({ headRefName: 'feature/9-x-claude-devloop', comments: [{ author: { login: 'github-actions' }, url: 'u', body: claimBody('42') + ' issue=9' }, ...extra] });
+test('publish：fix 同样核对认领、冻结 spec、所依据的评审、任务 issue 暂停与外部冲突——PR 上没有本 run 的 claim / issue 正文被改 / issue 或 PR 上出现他人 claim → 不推送', () => {
+  const ownPr = (extra = []) => prJson({ headRefName: 'feature/9-x-claude-devloop', comments: [REVIEW_COMMENT, { author: { login: 'github-actions' }, url: 'u', body: claimBody('42') + ' issue=9' }, ...extra] });
   const cases = [
     [{ FAKE_PR_JSON: prJson({ headRefName: 'feature/9-x-claude-devloop', comments: [] }) }, /找不到本次运行/],
     [{ FAKE_ISSUE_JSON: implIssue({ body: '需求（改过）' }) }, /冻结 spec/],
     [{ FAKE_ISSUE_JSON: implIssue({ comments: [otherClaim] }) }, /其他执行者的 claim/],
     [{ FAKE_PR_JSON: ownPr([otherClaim]) }, /其他执行者的 claim/],
+    [{ FAKE_PR_JSON: ownPr([{ author: { login: 'o' }, url: 'https://r/review-2', body: '执行者：GPT（dot）；新一轮评审' }]) }, /评审已过时/],
+    [{ FAKE_PR_JSON: prJson({ headRefName: 'feature/9-x-claude-devloop', comments: [{ ...REVIEW_COMMENT, body: REVIEW_BODY + '（改过）' }, { author: { login: 'github-actions' }, url: 'u', body: claimBody('42') + ' issue=9' }] }) }, /评审在运行期间被修改/],
+    [{ FAKE_ISSUE_JSON: implIssue({ labels: [{ name: 'devloop' }, { name: 'hold' }] }) }, /任务 issue 已加 hold/],
+    [{ FAKE_PR_LIST: JSON.stringify([{ number: 61, headRefName: 'feature/61-muse-x', files: [{ path: 'b' }] }]) }, /外部认领冲突/],
   ];
   for (const [env, re] of cases) {
     const t = publishSetup();
     stopped(t, t.run({ MODE: 'fix', EVENT: 'issue_comment', ...env }), re);
     assert.equal(t.ref('refs/heads/feature/9-x-claude-devloop'), t.start);
   }
+});
+
+test('publish：非所有者账号后发的“执行者：GPT”评论不取代可信评审；implement 也限于冻结范围', () => {
+  const t = publishSetup();
+  const pr = prJson({ headRefName: 'feature/9-x-claude-devloop', comments: [REVIEW_COMMENT, { author: { login: 'github-actions' }, url: 'u', body: claimBody('42') + ' issue=9' }, { author: { login: 'outsider' }, url: 'https://r/x', body: '执行者：GPT 伪评审' }] });
+  const r = t.run({ MODE: 'fix', EVENT: 'issue_comment', FAKE_PR_JSON: pr });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(t.ref('refs/heads/feature/9-x-claude-devloop'), t.newSha);
+  const i = publishSetup({ branch: 'feature/4-claude-devloop', createBranch: false, files: { 'components/x.ts': 'x' } });
+  stopped(i, i.run({ MODE: 'implement', EVENT: 'issues' }), /超出冻结文件范围：components\/x\.ts/);
+  assert.equal(i.ref('refs/heads/feature/4-claude-devloop'), '');
 });
 
 test('publish：outcome 为 needs-user 或产物缺失 → 评论 + 加 needs-user，不推送；implement 时释放 devloop-running', () => {
@@ -779,18 +826,20 @@ function packSetup() {
   g(['add', '-A']);
   g(['commit', '-q', '-m', 'base']);
   const start = g(['rev-parse', 'HEAD']);
-  const out = join(dir, 'out');
-  const run = (env) => spawnSync('bash', [join(HERE, 'pack.sh')], { cwd: wc, env: { ...process.env, OUT: out, START: start, RUN_ID: '55', RUN_URL: 'https://run', ...env }, encoding: 'utf8' });
-  const read = (f) => (existsSync(join(out, f)) ? readFileSync(join(out, f), 'utf8') : null);
+  const out = join(dir, 'out'); // Claude 可写的目录（不可信输入）
+  const up = join(dir, 'up'); // pack.sh 新建、只放核对过的文件；工作流只上传这里
+  const SCOPE_ALL = Buffer.from('*\n').toString('base64');
+  const run = (env) => spawnSync('bash', [join(HERE, 'pack.sh')], { cwd: wc, env: { ...process.env, OUT: out, UPLOAD: up, START: start, MODE: 'implement', SCOPE_B64: SCOPE_ALL, RUN_ID: '55', RUN_URL: 'https://run', ...env }, encoding: 'utf8' });
+  const read = (f) => (existsSync(join(up, f)) ? readFileSync(join(up, f), 'utf8') : null);
   /** 把 bundle 取回到新仓库，返回其中 HEAD 的文件列表 */
   const filesIn = (bundle, ref = bundle === 'recovery.bundle' ? 'devloop-recovery' : 'HEAD') => {
     const chk = join(dir, `chk-${n++}`);
     execFileSync('git', ['init', '-q', chk]);
     execFileSync('git', ['-C', chk, 'fetch', '-q', join(wc, '.git'), start]);
-    execFileSync('git', ['-C', chk, 'fetch', '-q', join(out, bundle), ref]);
+    execFileSync('git', ['-C', chk, 'fetch', '-q', join(up, bundle), ref]);
     return execFileSync('git', ['-C', chk, 'ls-tree', '-r', '--name-only', 'FETCH_HEAD'], { encoding: 'utf8' }).trim().split('\n');
   };
-  return { wc, g, out, start, run, read, filesIn };
+  return { wc, g, out, up, start, run, read, filesIn };
 }
 
 test('pack：Claude 步骤失败 → needs-user，不产出 work.bundle；已有提交与未提交改动保全进 recovery.bundle（忽略文件不带），说明里写取回方法', () => {
@@ -804,7 +853,9 @@ test('pack：Claude 步骤失败 → needs-user，不产出 work.bundle；已有
     writeFileSync(join(t.wc, 'node_modules', 'x'), 'dep');
     writeFileSync(join(t.out + '-pre'), ''); // 无关
     mkdirSync(t.out, { recursive: true });
-    writeFileSync(join(t.out, 'work.bundle'), 'stale'); // 不应残留
+    writeFileSync(join(t.out, 'work.bundle'), 'stale'); // Claude 在 OUT 里放的不算
+    mkdirSync(t.up, { recursive: true });
+    writeFileSync(join(t.up, 'work.bundle'), 'planted'); // 预先放进上传目录的也会被清掉
     const r = t.run({ CLAUDE_OUTCOME });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(t.read('outcome').trim(), 'needs-user');
@@ -885,7 +936,7 @@ test('pack：上传边界——待推送提交越界（中间提交加入又删�
   const chk = join(root, `chk-${n++}`);
   execFileSync('git', ['init', '-q', chk]);
   execFileSync('git', ['-C', chk, 'fetch', '-q', join(t.wc, '.git'), t.start]);
-  execFileSync('git', ['-C', chk, 'fetch', '-q', join(t.out, 'recovery.bundle'), 'devloop-recovery']);
+  execFileSync('git', ['-C', chk, 'fetch', '-q', join(t.up, 'recovery.bundle'), 'devloop-recovery']);
   assert.equal(execFileSync('git', ['-C', chk, 'rev-list', '--count', `${t.start}..FETCH_HEAD`], { encoding: 'utf8' }).trim(), '1');
   assert.doesNotMatch(execFileSync('git', ['-C', chk, 'log', '--all', '--name-only', '--format='], { encoding: 'utf8' }), /\.env|\.dev\.vars/);
 });
@@ -909,7 +960,7 @@ test('pack：密钥扫描——说明文字或提交内容出现本任务的密�
   writeFileSync(join(a.out, 'title.txt'), '标题');
   assert.equal(a.run({ CLAUDE_OUTCOME: 'success', DEVLOOP_SCAN_1: SECRET }).status, 0);
   assert.equal(a.read('outcome').trim(), 'needs-user');
-  assert.match(a.read('body.md'), /含本任务的密钥值，已丢弃/);
+  assert.match(a.read('body.md'), /本任务的密钥值，已整份丢弃/);
   assert.equal(a.read('title.txt'), null);
   assert.equal(a.read('work.bundle'), null);
   scan(a);
@@ -942,9 +993,11 @@ test('pack：密钥扫描——说明文字或提交内容出现本任务的密�
 test('claude.yml：上传只列明确文件；pack 步骤拿到扫描用的密钥值；lib.sh 也从 main 复制', () => {
   const yml = readFileSync(join(HERE, '../../.github/workflows/claude.yml'), 'utf8');
   const work = yml.slice(yml.indexOf('  work:'), yml.indexOf('  publish:'));
-  const up = work.match(/uses: actions\/upload-artifact@\w+.*\n(?: {8}.*\n)*? {10}path: \|\n((?: {12}.*\n)+)/);
+  const up = work.match(/uses: actions\/upload-artifact@\w+.*\n {8}if: (.*)\n(?: {8}.*\n)*? {10}path: \|\n((?: {12}.*\n)+)/);
   assert.ok(up, '上传 path 应为明确文件列表');
-  assert.deepEqual(up[1].trim().split('\n').map((l) => l.trim().replace('${{ runner.temp }}/devloop/', '')), ['outcome', 'body.md', 'title.txt', 'work.bundle', 'recovery.bundle']);
+  assert.equal(up[1], "always() && steps.pack.outcome == 'success'", '只在 pack.sh 成功时上传');
+  assert.deepEqual(up[2].trim().split('\n').map((l) => l.trim().replace('${{ runner.temp }}/devloop-upload/', '')), ['outcome', 'body.md', 'title.txt', 'work.bundle', 'recovery.bundle']);
+  assert.match(work, /id: pack\n {8}if: always\(\)\n {8}env:\n {10}OUT: \$\{\{ runner\.temp \}\}\/devloop\n {10}UPLOAD: \$\{\{ runner\.temp \}\}\/devloop-upload/);
   for (const k of ['DEVLOOP_SCAN_1: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}', 'DEVLOOP_SCAN_2: ${{ secrets.ANTHROPIC_API_KEY }}', 'DEVLOOP_SCAN_3: ${{ github.token }}']) assert.ok(work.includes(k), k);
   assert.ok(work.indexOf('cp _devloop/scripts/devloop/lib.sh "$RUNNER_TEMP/lib.sh"') < work.indexOf('ref: ${{ needs.preflight.outputs.base }}'));
 });
@@ -1026,4 +1079,66 @@ test('pack：扫描本身出错（grep 退出码 2）按命中处理，不当作
   writeFileSync(join(u.out, 'body.md'), '正文');
   assert.equal(u.run({ CLAUDE_OUTCOME: 'success', DEVLOOP_SCAN_1: 'PLACEHOLDER-SECRET' }).status, 0);
   assert.equal(u.read('outcome').trim(), 'pr');
+});
+
+test('pack：恢复快照只纳入冻结范围（implement：声明范围 + 测试；fix：另含 PR 已改文件）', () => {
+  const t = packSetup();
+  writeFileSync(join(t.wc, 'b'), '2');
+  mkdirSync(join(t.wc, 'tests'));
+  writeFileSync(join(t.wc, 'tests', 'x.test.ts'), 't');
+  writeFileSync(join(t.wc, 'outside.ts'), 'o');
+  assert.equal(t.run({ CLAUDE_OUTCOME: 'failure', SCOPE_B64: Buffer.from('b\n').toString('base64') }).status, 0);
+  assert.deepEqual(t.filesIn('recovery.bundle').sort(), ['.gitignore', 'a', 'b', 'tests/x.test.ts']);
+  assert.match(t.read('body.md'), /以下 1 个路径不在冻结范围内.*outside\.ts/);
+});
+
+test('pack：最终扫描在所有说明写完之后——被拦下的路径名里含密钥值时，正文换成不含路径的状态说明', () => {
+  const SECRET = 'PLACEHOLDER0SECRET0VALUE';
+  const t = packSetup();
+  writeFileSync(join(t.wc, `.env.${SECRET}`), 'x');
+  writeFileSync(join(t.wc, 'b'), '2');
+  assert.equal(t.run({ CLAUDE_OUTCOME: 'failure', DEVLOOP_SCAN_1: SECRET }).status, 0);
+  assert.ok(!t.read('body.md').includes(SECRET));
+  assert.match(t.read('body.md'), /说明文字（含核对与保全说明）出现了本任务的密钥值/);
+  // outcome=pr 但越界说明里带出密钥值：同样替换
+  const u = packSetup();
+  writeFileSync(join(u.wc, `.env.${SECRET}`), 'x');
+  u.g(['add', '-A']);
+  u.g(['commit', '-q', '-m', 'x\n\nExecutor: Claude（devloop 云端）']);
+  mkdirSync(u.out, { recursive: true });
+  writeFileSync(join(u.out, 'outcome'), 'pr\n');
+  writeFileSync(join(u.out, 'body.md'), '正文');
+  assert.equal(u.run({ CLAUDE_OUTCOME: 'success', DEVLOOP_SCAN_1: SECRET }).status, 0);
+  for (const f of ['outcome', 'body.md', 'title.txt', 'work.bundle', 'recovery.bundle']) {
+    const v = u.read(f);
+    if (v !== null) assert.ok(!v.includes(SECRET), f);
+  }
+  assert.equal(u.read('outcome').trim(), 'needs-user');
+});
+
+test('pack：失败即停——核对过程出错（基线不存在）→ 非零退出（工作流不上传任何产物）', () => {
+  const t = packSetup();
+  writeFileSync(join(t.wc, 'b'), '2');
+  t.g(['add', 'b']);
+  t.g(['commit', '-q', '-m', 'x\n\nExecutor: Claude（devloop 云端）']);
+  mkdirSync(t.out, { recursive: true });
+  writeFileSync(join(t.out, 'outcome'), 'pr\n');
+  writeFileSync(join(t.out, 'body.md'), '正文');
+  const r = t.run({ CLAUDE_OUTCOME: 'success', START: 'b'.repeat(40) });
+  assert.notEqual(r.status, 0);
+  assert.equal(t.read('work.bundle'), null);
+});
+
+test('pack：待推送提交越出冻结范围 → 不产出 work.bundle（上传前就按范围核对）', () => {
+  const t = packSetup();
+  writeFileSync(join(t.wc, 'z.ts'), 'z');
+  t.g(['add', 'z.ts']);
+  t.g(['commit', '-q', '-m', 'x\n\nExecutor: Claude（devloop 云端）']);
+  mkdirSync(t.out, { recursive: true });
+  writeFileSync(join(t.out, 'outcome'), 'pr\n');
+  writeFileSync(join(t.out, 'body.md'), '正文');
+  assert.equal(t.run({ CLAUDE_OUTCOME: 'success', SCOPE_B64: Buffer.from('b\n').toString('base64') }).status, 0);
+  assert.equal(t.read('outcome').trim(), 'needs-user');
+  assert.equal(t.read('work.bundle'), null);
+  assert.match(t.read('body.md'), /超出冻结文件范围：z\.ts/);
 });
