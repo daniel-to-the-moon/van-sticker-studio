@@ -173,6 +173,20 @@ test('claim：互斥靠原子创建锁标签（不是先读后写）；拿不到
   assert.doesNotMatch(r.log, /^issue list/m, '不再依赖非原子的标签列表');
 });
 
+test('claim：fix 模式也要取得全局锁（不发 claim、不做 implement 的冲突核对）；锁被占用则不开工，重跑提示用 -f pr', () => {
+  const ok = runClaim({ MODE: 'fix', N: '40', FAKE_ISSUE_JSON: 'not json' });
+  assert.equal(ok.code, 0, ok.stderr);
+  assert.equal(ok.kv.go, 'true');
+  assert.match(ok.log, /^api -X POST repos\/o\/r\/labels -f name=devloop-lock .* -f description=issue #40 run 777$/m);
+  assert.match(ok.log, /^issue edit 40 -R o\/r --add-label devloop-running$/m);
+  assert.doesNotMatch(ok.log, /^issue (view|comment)|^pr list/m);
+  assert.equal(ok.kv.spec, undefined);
+  const busy = runClaim({ MODE: 'fix', N: '40', FAKE_LOCK_POST_EXIT: '1', FAKE_LOCK_DESC: 'issue #12 run 1' });
+  assert.equal(busy.kv.go, 'false');
+  assert.match(busy.log, /^issue edit 40 -R o\/r --add-label needs-user$/m);
+  assert.match(readFileSync(busy.log.match(/--body-file (\S+claim-stop\.md)/)[1], 'utf8'), /issue #12 run 1[\s\S]*-f pr=40/);
+});
+
 test('claim：取得锁之后发 claim 失败 → 非零退出并释放自己的锁（不泄漏）', () => {
   const r = runClaim({ FAKE_COMMENT_EXIT: '1', FAKE_LOCK_DESC: 'issue #12 run 777' });
   assert.notEqual(r.code, 0);
@@ -243,13 +257,13 @@ const stopped = (t, r, re) => {
   if (re) assert.match(readFileSync(t.gh.log().match(/--body-file (\S+stop\.md)/)[1], 'utf8'), re);
 };
 
-test('publish：fix 推送到分支并评论；评论触发不动标签', () => {
+test('publish：fix 推送到分支并评论；评论触发不动 needs-user / hold', () => {
   const t = publishSetup();
   const r = t.run({ MODE: 'fix', EVENT: 'issue_comment' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(t.ref('refs/heads/feature/9-x-claude-devloop'), t.newSha);
   assert.match(t.gh.log(), /^pr comment 4/m);
-  assert.doesNotMatch(t.gh.log(), /remove-label/);
+  assert.doesNotMatch(t.gh.log(), /remove-label needs-user|hold/);
 });
 
 test('publish：手动重跑成功后只移除 needs-user（不动 hold）', () => {
@@ -282,9 +296,14 @@ test('publish：implement 结束只释放自己持有的锁', () => {
     other.run({ MODE: 'implement', EVENT: 'issues', FAKE_LOCK_DESC: desc });
     assert.doesNotMatch(other.gh.log(), /DELETE/, desc);
   }
+  // fix 也持有锁：成功推送或核对不通过都释放
   const fix = publishSetup();
-  fix.run({ MODE: 'fix', EVENT: 'issue_comment', FAKE_LOCK_DESC: 'issue #4 run 42' });
-  assert.doesNotMatch(fix.gh.log(), /DELETE/, 'fix 模式不持有锁');
+  assert.equal(fix.run({ MODE: 'fix', EVENT: 'issue_comment', FAKE_LOCK_DESC: 'issue #4 run 42' }).status, 0);
+  assert.match(fix.gh.log(), /^api -X DELETE repos\/o\/r\/labels\/devloop-lock$/m);
+  assert.match(fix.gh.log(), /^issue edit 4 -R o\/r --remove-label devloop-running$/m);
+  const fixStop = publishSetup();
+  fixStop.run({ MODE: 'fix', EVENT: 'issue_comment', PAUSED: 'true', FAKE_LOCK_DESC: 'issue #4 run 42' });
+  assert.match(fixStop.gh.log(), /^api -X DELETE repos\/o\/r\/labels\/devloop-lock$/m);
 });
 
 test('publish：implement 期间 main 前进 → 不 rebase、不推送（受测树就是推送树）', () => {
@@ -349,6 +368,16 @@ test('publish：禁止路径、符号链接、缺 Executor trailer → 不推送
     const t = publishSetup({ files: { [f]: 'x' } });
     stopped(t, t.run({ MODE: 'fix', EVENT: 'issue_comment' }), /禁止路径/);
     assert.equal(t.ref('refs/heads/feature/9-x-claude-devloop'), t.start, f);
+  }
+  // 非 ASCII、空格、换行等路径：必须按 NUL 分隔的原始路径匹配（默认输出会加引号转义导致漏判）
+  for (const f of ['.env.生产', 'sub dir/.dev.vars 带空格', '.env\nx', 'public/model/模型.glb', 'docs/"q".glb']) {
+    const t = publishSetup({ files: { [f]: 'x' } });
+    stopped(t, t.run({ MODE: 'fix', EVENT: 'issue_comment' }), /禁止路径/);
+    assert.equal(t.ref('refs/heads/feature/9-x-claude-devloop'), t.start, JSON.stringify(f));
+  }
+  for (const f of ['lib/链接', 'a b/c']) {
+    const t = publishSetup({ files: { [f]: '@link' } });
+    stopped(t, t.run({ MODE: 'fix', EVENT: 'issue_comment' }), /符号链接/);
   }
   const link = publishSetup({ files: { 'lib/l': '@link' } });
   stopped(link, link.run({ MODE: 'fix', EVENT: 'issue_comment' }), /符号链接/);

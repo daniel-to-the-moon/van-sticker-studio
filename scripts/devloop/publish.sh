@@ -9,11 +9,9 @@ set -euo pipefail
 mkdir -p "$OUT"
 
 release() {
-  # 实现结束（无论结果）释放 WIP 名额：运行中标记与全局互斥锁
-  if [ "$MODE" = "implement" ]; then
-    gh issue edit "$N" -R "$REPO" --remove-label devloop-running || true
-    lock_release "$N" "${RUN_ID:-}"
-  fi
+  # 本次运行结束（无论结果）释放 WIP 名额：运行中标记与全局互斥锁（implement 与 fix 都持有）
+  gh issue edit "$N" -R "$REPO" --remove-label devloop-running || true
+  lock_release "$N" "${RUN_ID:-}"
 }
 stop() {
   printf '执行者：Claude（devloop 云端）；角色：实现者；Issue：#%s\n\n发布前核对未通过，没有推送：%s\n\n产物在本次运行的 artifact 里保留 7 天：%s\n' "$N" "$1" "$RUN_URL" > "$OUT/stop.md"
@@ -84,22 +82,33 @@ fi
 git cat-file -e "$main^{commit}" 2>/dev/null || git fetch -q origin "$main"
 mb=$(git merge-base "$main" "$new")
 commits=$(git rev-list "$new" --not "$START" "$main")
+# 路径一律用 -z（NUL 分隔的原始路径）：默认输出会把非 ASCII / 特殊字符路径加引号转义，模式就匹配不上
 changed() {
-  git diff --no-renames --name-only "$mb" "$new"
+  git diff -z --no-renames --name-only "$mb" "$new"
   for c in $commits; do
     if [ "$(git rev-list --parents -n 1 "$c" | wc -w)" -gt 2 ]; then
-      git diff-tree --cc --name-only --no-commit-id "$c" # 合并提交：只看它自己引入的改动（与所有父提交都不同的文件）
+      git diff-tree -z --cc --name-only --no-commit-id "$c" # 合并提交：只看它自己引入的改动（与所有父提交都不同的文件）
     else
-      git diff-tree -r --no-renames --name-only --no-commit-id "$c"
+      git diff-tree -z -r --no-renames --name-only --no-commit-id "$c"
     fi
   done
 }
-bad=$(changed | LC_ALL=C sort -u | while IFS= read -r f; do if [ -n "$f" ] && forbidden_path "$f"; then echo "$f"; fi; done)
-[ -z "$bad" ] || stop "改动了禁止路径：$(echo $bad)"
-syms() { git ls-tree -r "$1" | awk -F '\t' '{ split($1, m, " ") } m[1] == "120000" { print $2 }'; }
-base_links=$({ syms "$START"; syms "$main"; } | LC_ALL=C sort -u)
-links=$(for c in $commits; do syms "$c"; done | LC_ALL=C sort -u | LC_ALL=C comm -23 - <(printf '%s\n' "$base_links"))
-[ -z "$links" ] || stop "新增或改为符号链接：$(echo $links)"
+bad=""
+while IFS= read -r -d '' f; do
+  if [ -n "$f" ] && forbidden_path "$f"; then bad="$bad $(printf '%q' "$f")"; fi
+done < <(changed)
+[ -z "$bad" ] || stop "改动了禁止路径：${bad# }"
+# 符号链接：待推送提交的树里出现、而基线与 main 里都不是符号链接的路径
+was_link() { [ "$(git --literal-pathspecs ls-tree "$1" -- "$2" | cut -d ' ' -f 1)" = "120000" ]; }
+links=""
+for c in $commits; do
+  while IFS= read -r -d '' e; do
+    [ "${e%% *}" = "120000" ] || continue
+    p=${e#*$'\t'}
+    was_link "$START" "$p" || was_link "$main" "$p" || links="$links $(printf '%q' "$p")"
+  done < <(git ls-tree -r -z "$c")
+done
+[ -z "$links" ] || stop "新增或改为符号链接：${links# }"
 
 # 6. 提交归属：每个待推送的提交（含合并提交）都带 Executor trailer
 for c in $commits; do
@@ -112,6 +121,7 @@ if [ "$MODE" = "fix" ]; then
   gh pr comment "$N" -R "$REPO" --body-file "$OUT/body.md"
   # 手动重跑（workflow_dispatch）意味着维护者已排除上次停下的原因：成功推送后去掉 needs-user。hold 是用户的暂停意图，保持不动
   if [ "${EVENT:-}" = "workflow_dispatch" ]; then gh pr edit "$N" -R "$REPO" --remove-label needs-user; fi
+  release
 else
   title=$(head -c 200 "$OUT/title.txt" 2>/dev/null || true)
   # 自动候选默认 Draft：独立评审与验证通过后再由评审方转 Ready（AGENTS §13 合并要求非 Draft）

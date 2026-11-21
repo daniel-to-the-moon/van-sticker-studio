@@ -56,7 +56,7 @@ jobs:
       # 只用于发 claim / 停止说明、needs-user 与 devloop-running 标签，以及创建全局互斥锁标签 devloop-lock
       issues: write
     outputs:
-      go: ${{ steps.ctx.outputs.mode == 'fix' && 'true' || steps.claim.outputs.go }}
+      go: ${{ steps.claim.outputs.go }}
       mode: ${{ steps.ctx.outputs.mode }}
       branch: ${{ steps.ctx.outputs.branch }}
       base: ${{ steps.ctx.outputs.base }}
@@ -81,10 +81,10 @@ jobs:
         run: |
           [ -z "$BOTH" ] || { echo "::error::pr 与 issue 只能填一个" >&2; exit 1; }
           bash _devloop/scripts/devloop/ctx.sh
-      - name: 核对冲突并发 claim（implement）
+      - name: 取得全局锁；implement 另核对冲突并发 claim
         id: claim
-        if: steps.ctx.outputs.mode == 'implement'
         env:
+          MODE: ${{ steps.ctx.outputs.mode }}
           GH_TOKEN: ${{ github.token }}
           N: ${{ steps.ctx.outputs.number }}
           REPO: ${{ github.repository }}
@@ -281,8 +281,6 @@ jobs:
           printf '执行者：Claude（devloop）\n\n发布步骤失败（分支：%s）。可能是推送被拒（分支在此期间被更新）或开 PR / 评论失败。自动循环在此停下，请用户查看：%s\n' "${BRANCH:-未知}" "$RUN_URL" > report.md
           gh issue comment "$N" -R "$REPO" --body-file report.md || true
           gh issue edit "$N" -R "$REPO" --add-label needs-user || true
-          if [ "$MODE" = "implement" ]; then
-            gh issue edit "$N" -R "$REPO" --remove-label devloop-running || true
-            . _devloop/scripts/devloop/lib.sh
-            lock_release "$N" "$RUN_ID"
-          fi
+          gh issue edit "$N" -R "$REPO" --remove-label devloop-running || true
+          . _devloop/scripts/devloop/lib.sh
+          lock_release "$N" "$RUN_ID"

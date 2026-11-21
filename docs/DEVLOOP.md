@@ -10,7 +10,7 @@
 维护者给 issue 打 devloop 标签（= 授权并 Ready）
         │
   【GitHub Actions】claude.yml（只运行 main 上 scripts/devloop 的可信脚本，除 work 外不执行仓库代码）
-     preflight（issues: write）：确定模式与准确基线（完整 SHA）→ 核对冲突 → 取得全局锁 devloop-lock → 在 issue 发 claim、打 devloop-running
+     preflight（issues: write）：确定模式与准确基线（完整 SHA）→ 取得全局锁 devloop-lock（实现与修复都要）→ 实现时另核对冲突、在 issue 发 claim；打 devloop-running
      work（只读令牌）：检出该基线 → Claude 改代码 + 测试 → 跑门禁 → 本地提交 → git bundle（不发布时保全为 recovery.bundle）
      publish（写权限）：发布前二次核对（见第四节）→ 全部通过才推到 feature/<N>-claude-devloop → 开 Draft PR（Closes #N）→ 释放锁
         │
@@ -50,12 +50,12 @@
 
 ## 四、机器强制的核对（不靠提示词）
 
-**开工前（preflight / claim.sh）**，任一命中就不开工：
+**开工前（preflight / claim.sh）**，任一命中就不开工（前三项只对实现；全局锁对实现与修复都适用）：
 
 - issue 已有其他执行者的 claim（首行以“执行者：”开头、含 claim / 认领），按 AGENTS §11 先发者为准；
 - 本任务已有开放 PR（`feature/<N>-*` 或 `fix/<N>-*`），按 §10 一个任务只有一个开放 PR；
 - 远端已有 `feature/<N>-claude-devloop` 分支（上次的成果，不覆盖）；
-- 拿不到全局互斥锁：devloop 同一时间只做一项实现（WIP 上限 1），避免文件 / 语义冲突。锁是仓库标签 `devloop-lock`，创建是原子操作（已存在则失败），描述写持有者 `issue #N run <id>`；从开工前一直持有到发布结束，只由持有者释放。`devloop-running` 只是给人看的运行中标记。
+- 拿不到全局互斥锁：devloop 同一时间只做一项实现或修复（WIP 上限 1，AGENTS §10 每人最多一个活动实现），避免文件 / 语义冲突。锁是仓库标签 `devloop-lock`，创建是原子操作（已存在则失败），描述写持有者 `issue #N run <id>`；从开工前一直持有到发布结束，只由持有者释放。`devloop-running` 只是给人看的运行中标记。
 
 **发布前（publish.sh）**，任一不通过就不推送，产物在 artifact 保留 7 天：
 
@@ -63,7 +63,7 @@
 2. 实时状态：issue / PR 仍打开、无 `hold`、实现时仍带 `devloop`；
 3. 认领：issue 上有本次 run 由 Actions 发出的 claim，且之后没有他人 claim；issue 正文的 sha256 与 claim 时一致；
 4. 准确基线：实现时 main 仍是 claim 里的 base（main 前进就停，不在发布阶段 rebase，受测树就是推送树），目标分支不存在；修复时分支 head 仍是开工时的 SHA；
-5. 文件边界：相对 main 的净改动，**以及每一个待推送的提交**（中间提交加入又删除的文件也会随历史推上去；合并提交只看它自己引入的改动）都不碰禁止路径（`scripts/devloop/lib.sh`：GLB 与 `public/model/`、`dist/`、`.github/`、`.openai/`、`.env*`、`.dev.vars*`、`package.json` / `package-lock.json`、constitution / AGENTS / CLAUDE、`.claude/`、`scripts/devloop/`、`wrangler.*`），任何待推送提交都不新增符号链接；
+5. 文件边界：相对 main 的净改动，**以及每一个待推送的提交**（中间提交加入又删除的文件也会随历史推上去；合并提交只看它自己引入的改动；路径按 NUL 分隔的原始字节匹配，非 ASCII、空格、换行都不会因转义漏判）都不碰禁止路径（`scripts/devloop/lib.sh`：GLB 与 `public/model/`、`dist/`、`.github/`、`.openai/`、`.env*`、`.dev.vars*`、`package.json` / `package-lock.json`、constitution / AGENTS / CLAUDE、`.claude/`、`scripts/devloop/`、`wrangler.*`），任何待推送提交都不新增符号链接；
 6. 归属：每个待推送的提交（含合并提交）都带 `Executor: Claude（devloop 云端）`。
 
 **不发布时保全成果**（pack.sh）：Claude 步骤失败、超时，或判断 needs-user 但已有改动时，已有本地提交和未提交改动（不含 `.gitignore` 忽略的文件）打成 `recovery.bundle`，随本次运行的 artifact 保留 7 天，停止说明里写明取回命令。publish 从不推送它。
