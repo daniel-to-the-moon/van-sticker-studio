@@ -141,6 +141,8 @@ test('claim：已有他人 claim / 本任务已有开放 PR / 远端已有分支
     开放PR: { FAKE_PR_LIST: JSON.stringify([{ number: 31, headRefName: 'feature/12-foo' }]) },
     已有分支: { FAKE_API: JSON.stringify([{ ref: 'refs/heads/feature/12-claude-devloop' }]) },
     锁被别的实现持有: { FAKE_LOCK_POST_EXIT: '1', FAKE_LOCK_DESC: 'issue #5 run 1' },
+    他人claim引用devloop标记: { FAKE_ISSUE_JSON: issueJson({ comments: [{ ...otherClaim, body: '执行者：Muse｜claim #12\n引用旧的 <!-- devloop-claim run=1 base=x spec=y -->' }] }) },
+    冒用devloop首行但不是Actions发的: { FAKE_ISSUE_JSON: issueJson({ comments: [{ author: { login: 'daniel-to-the-moon' }, url: 'u', body: '执行者：Claude（devloop 云端）｜claim #12\n<!-- devloop-claim run=1 base=x spec=y -->' }] }) },
     同一issue上次运行未释放: { FAKE_LOCK_POST_EXIT: '1', FAKE_LOCK_DESC: 'issue #12 run 1' },
   };
   for (const [k, env] of Object.entries(cases)) {
@@ -945,4 +947,83 @@ test('claude.yml：上传只列明确文件；pack 步骤拿到扫描用的密�
   assert.deepEqual(up[1].trim().split('\n').map((l) => l.trim().replace('${{ runner.temp }}/devloop/', '')), ['outcome', 'body.md', 'title.txt', 'work.bundle', 'recovery.bundle']);
   for (const k of ['DEVLOOP_SCAN_1: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}', 'DEVLOOP_SCAN_2: ${{ secrets.ANTHROPIC_API_KEY }}', 'DEVLOOP_SCAN_3: ${{ github.token }}']) assert.ok(work.includes(k), k);
   assert.ok(work.indexOf('cp _devloop/scripts/devloop/lib.sh "$RUNNER_TEMP/lib.sh"') < work.indexOf('ref: ${{ needs.preflight.outputs.base }}'));
+});
+
+test('pack：密钥扫描不受 SIGPIPE 影响（大提交、密钥靠前）；合并提交解决冲突时写入的密钥、二进制文件里的密钥都能扫到', () => {
+  const SECRET = 'ghs_PLACEHOLDERTOKENVALUE123';
+  const prep = (t) => {
+    mkdirSync(t.out, { recursive: true });
+    writeFileSync(join(t.out, 'outcome'), 'pr\n');
+    writeFileSync(join(t.out, 'body.md'), '正文');
+  };
+  const TR = '\n\nExecutor: Claude（devloop 云端）';
+  // 1) 约 2 MB 文本，密钥在开头
+  const a = packSetup();
+  writeFileSync(join(a.wc, 'big.txt'), `${SECRET}\n${'x'.repeat(80)}\n`.repeat(25000));
+  a.g(['add', 'big.txt']);
+  a.g(['commit', '-q', '-m', `big${TR}`]);
+  prep(a);
+  assert.equal(a.run({ CLAUDE_OUTCOME: 'success', DEVLOOP_SCAN_3: SECRET }).status, 0);
+  assert.equal(a.read('outcome').trim(), 'needs-user');
+  assert.equal(a.read('work.bundle'), null);
+  assert.equal(a.read('recovery.bundle'), null);
+  // 2) 只在合并提交里引入（两个父提交都不含）
+  const b = packSetup();
+  b.g(['checkout', '-q', '-b', 'side']);
+  writeFileSync(join(b.wc, 's'), 'side');
+  b.g(['add', 's']);
+  b.g(['commit', '-q', '-m', `side${TR}`]);
+  b.g(['checkout', '-q', 'main']);
+  writeFileSync(join(b.wc, 'm'), 'main');
+  b.g(['add', 'm']);
+  b.g(['commit', '-q', '-m', `main${TR}`]);
+  b.g(['merge', '-q', '--no-ff', '--no-commit', 'side']);
+  writeFileSync(join(b.wc, 'cfg.ts'), `export const k = '${SECRET}';`);
+  b.g(['add', 'cfg.ts']);
+  b.g(['commit', '-q', '-m', `merge${TR}`]);
+  assert.doesNotMatch(execFileSync('git', ['log', '-p', '--format=%B', `${b.start}..HEAD`], { cwd: b.wc, encoding: 'utf8' }), new RegExp(SECRET), '前提：git log -p 看不到合并提交引入的内容');
+  prep(b);
+  assert.equal(b.run({ CLAUDE_OUTCOME: 'success', DEVLOOP_SCAN_1: SECRET }).status, 0);
+  assert.equal(b.read('outcome').trim(), 'needs-user');
+  assert.equal(b.read('work.bundle'), null);
+  // 3) 二进制文件里
+  const c = packSetup();
+  writeFileSync(join(c.wc, 'blob.bin'), Buffer.concat([Buffer.from([0, 1, 2, 0, 255]), Buffer.from(SECRET), Buffer.from([0, 0])]));
+  c.g(['add', 'blob.bin']);
+  c.g(['commit', '-q', '-m', `bin${TR}`]);
+  prep(c);
+  assert.equal(c.run({ CLAUDE_OUTCOME: 'success', DEVLOOP_SCAN_2: SECRET }).status, 0);
+  assert.equal(c.read('work.bundle'), null);
+  for (const t of [a, b, c]) for (const f of ['outcome', 'body.md', 'title.txt', 'work.bundle', 'recovery.bundle']) {
+    const v = t.read(f);
+    if (v !== null) assert.ok(!v.includes(SECRET), `${f} 含密钥值`);
+  }
+});
+
+test('pack：扫描本身出错（grep 退出码 2）按命中处理，不当作安全通过', () => {
+  const t = packSetup();
+  writeFileSync(join(t.wc, 'b'), '2');
+  t.g(['add', 'b']);
+  t.g(['commit', '-q', '-m', 'feat\n\nExecutor: Claude（devloop 云端）']);
+  mkdirSync(t.out, { recursive: true });
+  writeFileSync(join(t.out, 'outcome'), 'pr\n');
+  writeFileSync(join(t.out, 'body.md'), '正文');
+  const bin = join(t.out, '..', 'fakebin');
+  mkdirSync(bin, { recursive: true });
+  const realGrep = execFileSync('bash', ['-c', 'command -v grep'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(bin, 'grep'), `#!/usr/bin/env bash\ncase " $* " in *" -qaF "*) exit 2 ;; esac\nexec ${realGrep} "$@"\n`);
+  chmodSync(join(bin, 'grep'), 0o755);
+  assert.equal(t.run({ CLAUDE_OUTCOME: 'success', DEVLOOP_SCAN_1: 'PLACEHOLDER-SECRET', PATH: `${bin}:${process.env.PATH}` }).status, 0);
+  assert.equal(t.read('outcome').trim(), 'needs-user');
+  assert.equal(t.read('work.bundle'), null);
+  // 对照：同样内容、扫描正常 → 打包
+  const u = packSetup();
+  writeFileSync(join(u.wc, 'b'), '2');
+  u.g(['add', 'b']);
+  u.g(['commit', '-q', '-m', 'feat\n\nExecutor: Claude（devloop 云端）']);
+  mkdirSync(u.out, { recursive: true });
+  writeFileSync(join(u.out, 'outcome'), 'pr\n');
+  writeFileSync(join(u.out, 'body.md'), '正文');
+  assert.equal(u.run({ CLAUDE_OUTCOME: 'success', DEVLOOP_SCAN_1: 'PLACEHOLDER-SECRET' }).status, 0);
+  assert.equal(u.read('outcome').trim(), 'pr');
 });

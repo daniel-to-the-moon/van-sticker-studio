@@ -17,8 +17,29 @@ note() { printf '\n%s\n' "$1" >> "$OUT/body.md"; }
 # 密钥值清单（长度不足 8 的忽略，避免误判）；文件只在本 runner 的临时目录，不上传
 pat=$(mktemp)
 for v in "${DEVLOOP_SCAN_1:-}" "${DEVLOOP_SCAN_2:-}" "${DEVLOOP_SCAN_3:-}"; do [ "${#v}" -ge 8 ] && printf '%s\n' "$v" >> "$pat"; done
-leaks_in() { [ -s "$pat" ] && grep -qaF -f "$pat" "$@" 2> /dev/null; }
-leaks_git() { [ -s "$pat" ] && git log -p --format=%B "$1" 2> /dev/null | grep -qaF -f "$pat"; }
+# 扫描先把内容完整写进临时文件再 grep：不用管道接 grep -q（命中后提前退出会让上游收到 SIGPIPE，pipefail 下反被当成“未命中”）。
+# 生产内容失败或 grep 出错（退出码 2）一律按“命中”处理：扫描异常不能当作安全通过。
+_scan() { # 参数：内容文件
+  grep -qaF -f "$pat" "$1"
+  case $? in 1) return 1 ;; *) return 0 ;; esac
+}
+leaks_in() { # 参数：要上传的文本文件（不存在的跳过）
+  [ -s "$pat" ] || return 1
+  local f
+  for f in "$@"; do [ -e "$f" ] || continue; _scan "$f" && return 0; done
+  return 1
+}
+# 扫描一个提交区间引入的全部对象内容（提交信息、树、所有 blob，含二进制与合并提交解决冲突时写入的内容）——
+# 与 bundle 里实际带出去的对象一致，不依赖 git log -p 的 diff（合并提交默认不显示 diff）
+leaks_git() { # 参数：区间，如 START..HEAD
+  [ -s "$pat" ] || return 1
+  local t r
+  t=$(mktemp)
+  if ! { git rev-list --objects "$1" | cut -d ' ' -f 1 | git cat-file --batch; } > "$t"; then rm -f "$t"; return 0; fi
+  _scan "$t"; r=$?
+  rm -f "$t"
+  return $r
+}
 
 # 恢复快照：从基线出发，只纳入批准范围内的改动（工作树相对基线的净状态，含未提交与未跟踪文件，不含 .gitignore 忽略的文件）
 recover() {

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # devloop 共享判断：claim.sh 与 publish.sh 都 source 本文件（均来自 main 上的可信版本）。由 claude.test.mjs 覆盖。
 
-# 他人 claim：首行以“执行者：”开头且含 claim / 认领、不是 devloop 自己的认领标记的评论。输入为 gh issue view --json comments 的 JSON，输出这些评论的链接（空格分隔，空 = 没有）
-DEVLOOP_OTHER_CLAIMS_JQ='[.comments[]? | select((.body | contains("devloop-claim")) | not) | select(.body | split("\n")[0] | test("^执行者：") and test("claim|认领"; "i")) | .url] | join(" ")'
+# devloop 自己的认领：由 Actions 发出、首行以“执行者：Claude（devloop 云端）”开头、带 devloop-claim 标记。只有这种评论不算他人 claim
+DEVLOOP_SELF_CLAIM_JQ='((.author.login // "") | test("^github-actions(\\[bot\\])?$")) and (.body | startswith("执行者：Claude（devloop 云端）")) and (.body | contains("devloop-claim"))'
+# 他人 claim：首行以“执行者：”开头且含 claim / 认领、且不是上面那种 devloop 自己的认领（正文引用 devloop 标记、或冒用 devloop 首行但不是 Actions 发的，都算他人）。
+# 输入为 gh issue view --json comments 的 JSON，输出这些评论的链接（空格分隔，空 = 没有）
+DEVLOOP_OTHER_CLAIMS_JQ="[.comments[]? | select(($DEVLOOP_SELF_CLAIM_JQ) | not) | select(.body | split(\"\\n\")[0] | test(\"^执行者：\") and test(\"claim|认领\"; \"i\")) | .url] | join(\" \")"
 
 # 冻结 spec：issue 正文的 sha256。stdin 为 gh issue view --json body 的 JSON
 spec_hash() { jq -j '.body // ""' | sha256sum | cut -c1-64; }
@@ -85,4 +88,4 @@ scope_violations() {
 # 本次运行的 claim：某个对象的评论里由 Actions 发出、带 run=<id> 的 devloop-claim。stdin 为 gh ... --json comments。输出匹配条数
 own_claims() { jq -r --arg m "devloop-claim run=$1 " '[.comments[]? | select((.author.login | test("^github-actions(\\[bot\\])?$")) and (.body | contains($m)))] | length'; }
 # issue 上最近一次 devloop 实现 claim 记录的 spec 哈希（没有则空）。stdin 为 gh issue view --json comments
-claimed_spec() { jq -r '[.comments[]? | select((.author.login | test("^github-actions(\\[bot\\])?$")) and (.body | contains("devloop-claim")) and ((.body | contains(" issue=")) | not))] | last | (.body // "") | (capture("spec=(?<s>[0-9a-f]{64})").s // "")'; }
+claimed_spec() { jq -r '[.comments[]? | select((.author.login | test("^github-actions(\\[bot\\])?$")) and (.body | startswith("执行者：Claude（devloop 云端）")) and (.body | contains("devloop-claim")) and ((.body | contains(" issue=")) | not))] | last | (.body // "") | (capture("spec=(?<s>[0-9a-f]{64})").s // "")'; }

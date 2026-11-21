@@ -56,7 +56,7 @@
 
 - 全局互斥锁：仓库标签 `devloop-lock`，创建是原子操作（已存在则失败），描述写持有者 `issue #N run <id>`；从开工前持有到发布结束，只由持有者释放。防止两次运行同时写代码。
 - AGENTS §10 每人最多一个活动实现：devloop 在其他分支上还有开放 PR（等待评审 / 合并），或有其他 blocked 的实现（带 devloop claim 且 `needs-user` 的 issue），就不开新的。blocked 不释放名额，锁释放也不等于名额或文件锁可以交接；失败留证后不自动重派，由维护者处理后手动重跑同一项。
-- 任务 issue 上有其他执行者的 claim（首行以“执行者：”开头、含 claim / 认领），按 §11 先发者为准。
+- 任务 issue 上有其他执行者的 claim（首行以“执行者：”开头、含 claim / 认领），按 §11 先发者为准。只有 Actions 发出、首行为“执行者：Claude（devloop 云端）”且带 devloop-claim 标记的评论算 devloop 自己的；正文引用该标记或冒用首行的都算他人。
 - 实现另查：本任务已有开放 PR（`feature/<N>-*` 或 `fix/<N>-*`）；远端已有 `feature/<N>-claude-devloop` 分支（上次的成果，不覆盖）。
 - 修复另查：任务 issue（取自分支名 `feature/<issue>-…-claude-devloop`）上必须有 devloop 的实现 claim，且 issue 正文的 sha256 与那次 claim 一致（spec 被改过就要重新认领，不在旧 PR 上修）；PR 上没有他人 claim。通过后在 PR 上发修订 claim（run、PR head、spec、所针对评审的哈希）。
 - `devloop-running` 只是给人看的运行中标记。
@@ -66,7 +66,7 @@
 - `work.bundle`：只在 outcome=pr 时产出，先过下面第 5、6 条的边界核对，并扫描提交内容里是否出现本任务的密钥值（订阅令牌、API key、`GITHUB_TOKEN`）；不通过就不打包、改为 needs-user。
 - `recovery.bundle`：不发布但有改动时的恢复快照。只含批准范围内的净工作树（单个提交，不带中间历史；禁止路径与符号链接不纳入，说明里列出未纳入的路径名），也过密钥扫描；扫描命中就不上传，只报告状态。
 - `body.md` / `title.txt`：含本任务密钥值就整份丢弃，只留状态说明。
-- 局限：密钥扫描只比对本任务可见的这几个值，二进制文件的内容不扫描。
+- 扫描对象是 bundle 实际带出去的全部对象（提交信息、树、所有文件内容，含二进制与合并提交解决冲突时写入的内容）；内容先完整写入临时文件再比对，扫描出错一律按命中处理。局限：只比对本任务可见的这几个值，经过编码或变形的值认不出。
 
 **推送前（publish.sh）**，任一不通过就不推送：
 
