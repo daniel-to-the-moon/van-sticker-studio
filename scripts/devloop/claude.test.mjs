@@ -34,7 +34,7 @@ function fakeGh(dir) {
     'case "$1 $2" in',
     '  "issue view") emit "$FAKE_ISSUE_JSON" ;;',
     '  "pr view") emit "$FAKE_PR_JSON" ;;',
-    '  "pr list") emit "${FAKE_PR_LIST:-[]}" ;;',
+    '  "pr list") case " $* " in *,files" "*) [ -z "${FAKE_PR_FILES_EXIT:-}" ] || exit "$FAKE_PR_FILES_EXIT" ;; esac; emit "${FAKE_PR_LIST:-[]}" ;;',
     '  "issue list") emit "${FAKE_ISSUE_LIST:-[]}" ;;',
     '  "issue comment") exit "${FAKE_COMMENT_EXIT:-0}" ;;',
     '  api\\ *)',
@@ -953,4 +953,36 @@ test('pack：待推送提交越出冻结范围 → 不产出 work.bundle（上�
   assert.equal(t.read('outcome').trim(), 'needs-user');
   assert.equal(t.read('work.bundle'), null);
   assert.match(t.read('body.md'), /超出冻结文件范围：z\.ts/);
+});
+
+test('claim / publish：查开放 PR 的文件失败 → 不当作无冲突，非零退出（claim 释放锁、不发 claim；publish 不推送）', () => {
+  const r = runClaim({ FAKE_PR_FILES_EXIT: '1', FAKE_LOCK_DESC: 'issue #12 run 777' });
+  assert.notEqual(r.code, 0);
+  assert.notEqual(r.kv.go, 'true');
+  assert.doesNotMatch(r.log, /--body-file \S+claim\.md/);
+  assert.match(r.log, /^api -X DELETE repos\/o\/r\/labels\/devloop-lock$/m);
+  const t = publishSetup();
+  assert.notEqual(t.run({ FAKE_PR_FILES_EXIT: '1' }).status, 0);
+  assert.equal(t.ref(`refs/heads/${BRANCH}`), '');
+});
+
+test('pack：只有说明含密钥值、代码本身安全 → 不发布，但代码保全为 recovery.bundle，说明里不含密钥值', () => {
+  const SECRET = 'PLACEHOLDER-ONLY-IN-BODY-123';
+  const t = packSetup();
+  writeFileSync(join(t.wc, 'b'), 'safe');
+  t.g(['add', 'b']);
+  t.g(['commit', '-q', '-m', 'feat\n\nExecutor: Claude（devloop 云端）']);
+  mkdirSync(t.out, { recursive: true });
+  writeFileSync(join(t.out, 'outcome'), 'pr\n');
+  writeFileSync(join(t.out, 'body.md'), `调试输出 ${SECRET}`);
+  writeFileSync(join(t.out, 'title.txt'), '标题');
+  assert.equal(t.run({ CLAUDE_OUTCOME: 'success', DEVLOOP_SCAN_1: SECRET }).status, 0);
+  assert.equal(t.read('outcome').trim(), 'needs-user');
+  assert.equal(t.read('work.bundle'), null);
+  assert.deepEqual(t.filesIn('recovery.bundle').sort(), ['.gitignore', 'a', 'b']);
+  assert.match(t.read('body.md'), /已整份丢弃[\s\S]*已保全成果/);
+  for (const f of ['outcome', 'body.md', 'title.txt', 'recovery.bundle']) {
+    const v = t.read(f);
+    if (v !== null) assert.ok(!v.includes(SECRET), f);
+  }
 });

@@ -107,20 +107,21 @@ scope_violations() {
 #  - 其他 issue 上他人的 claim 正文提到冻结范围里的路径（取每个模式里第一个通配符之前、至少 3 个字符的字面部分）。
 #  只能发现已开 PR 或在 claim 里写明路径的冲突；没写进范围的共享接口，靠维护者打标签前确认范围。
 external_conflicts() {
-  local pf=$1 n=$2 num f
-  gh pr list -R "$REPO" --state open --limit 100 --json number,headRefName,files \
-    | jq -r '.[] | select((.headRefName | test("claude-devloop$")) | not) | .number as $n | .files[]? | "\($n)\t\(.path | @json)"' \
+  local pf=$1 n=$2 num f prs issues
+  # 两次查询都先完整取回，任一失败就返回非零（调用方在命令替换里调用，失败会让它停下），不把没查完当作没有冲突
+  prs=$(gh pr list -R "$REPO" --state open --limit 100 --json number,headRefName,files) || return 1
+  issues=$(gh issue list -R "$REPO" --state open --limit 100 --json number,comments) || return 1
+  jq -r '.[] | select((.headRefName | test("claude-devloop$")) | not) | .number as $n | .files[]? | "\($n)\t\(.path | @json)"' <<<"$prs" \
     | while IFS=$'\t' read -r num f; do
       f=$(jq -r . <<<"$f")
       if in_scope "$f" "$pf"; then printf '其他执行者的开放 PR #%s 改动了范围内的 %q\n' "$num" "$f"; fi
     done | LC_ALL=C sort -u
-  gh issue list -R "$REPO" --state open --limit 100 --json number,comments \
-    | jq -r --rawfile pats "$pf" --arg n "$n" "
+  jq -r --rawfile pats "$pf" --arg n "$n" "
       (\$pats | split(\"\\n\") | map(select(length > 0) | sub(\"[*?\\\\[].*\$\"; \"\")) | map(select(length >= 3))) as \$lits
       | .[] | select((.number | tostring) != \$n) | .number as \$i
       | .comments[]? | select($DEVLOOP_IS_OTHER_CLAIM_JQ) | .body as \$b
       | select(any(\$lits[]; . as \$l | \$b | contains(\$l)))
-      | \"issue #\\(\$i) 上他人的 claim 提到了本任务范围的路径：\\(.url)\"" | LC_ALL=C sort -u
+      | \"issue #\\(\$i) 上他人的 claim 提到了本任务范围的路径：\\(.url)\"" <<<"$issues" | LC_ALL=C sort -u
 }
 
 # 本次运行的 claim：devloop 自己的认领（身份条件同上）且带 run=<id>。stdin 为 gh issue view --json comments。输出匹配条数

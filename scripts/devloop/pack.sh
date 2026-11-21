@@ -122,10 +122,22 @@ else
 fi
 
 # 最终扫描：所有说明都已写完，命中就换成不含路径与原文的状态说明
-if leaks_in "$body" "$UPLOAD/title.txt"; then
+final_scan() {
+  leaks_in "$body" "$UPLOAD/title.txt" || return 1
   printf '执行者：Claude（devloop）\n\n本次运行的说明文字（含核对与保全说明）出现了本任务的密钥值，已整份丢弃、未上传；不发布。请维护者查看运行（日志里密钥已被打码）：%s\n' "$RUN_URL" > "$body"
+  if [ -f "$UPLOAD/recovery.bundle" ]; then
+    printf '\n代码成果已过范围与密钥核对，保全为本次运行 artifact `devloop-%s` 里的 `recovery.bundle`（保留 7 天），取回：`gh run download %s -n devloop-%s` 后 `git fetch recovery.bundle devloop-recovery:devloop-recovery-%s`。\n' "$RUN_ID" "$RUN_ID" "$RUN_ID" "$RUN_ID" >> "$body"
+  fi
   rm -f "$UPLOAD/title.txt"
-  if [ "$outcome" = "pr" ]; then outcome=needs-user; rm -f "$UPLOAD/work.bundle"; fi
+}
+if final_scan; then
+  if [ "$outcome" = "pr" ]; then
+    # 只是说明不安全：不发布，但已过核对的代码不随说明一起丢弃，改为保全，再对追加后的说明扫一次
+    outcome=needs-user
+    rm -f "$UPLOAD/work.bundle"
+    recover
+    final_scan || true
+  fi
 fi
 echo "$outcome" > "$UPLOAD/outcome"
 rm -f "$pat" "$scope"
