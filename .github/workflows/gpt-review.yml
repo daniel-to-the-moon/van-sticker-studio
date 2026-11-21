@@ -4,17 +4,22 @@
 # 为什么在 CI 里：ChatGPT 对话里的 GPT（dot）无法被 GitHub 事件唤醒（AGENTS §11），每次都要维护者传话；
 # 共享账号下也认不出评审者是谁。这里由事件触发，评论作者是 App 机器人账号，可以核验。
 #
-# 安全结构：
+# 安全结构（持有模型密钥与 App 私钥的任务，工作流定义本身不能被候选 PR 改动）：
+#   - 触发用 pull_request_target：工作流定义取自 PR 的目标分支，且只评审目标为 main 的 PR；
+#     手动触发只在从 main 运行时生效（--ref 选别的分支直接跳过）。候选 PR 里改过的本文件不会被执行。
+#   - 两个任务都绑定环境 gpt-review：密钥只存在该环境里，环境由维护者限制为只允许 main（docs/process/gpt-ci-review.md）。
 #   review：只读令牌。评审规则（提示词、schema、AGENTS / CONTRIBUTING / constitution）取自 main，放进可信目录作为 Codex 的工作目录；
 #           PR 代码检出到另一个目录，只作为被评审的数据（PR 里改过的说明文件不会被当成指令加载）。
 #           Codex 在只读沙箱里运行（permission-profile :read-only，safety-strategy 默认 drop-sudo）。
-#   post  ：不检出、不执行 PR 代码；只用 App 安装令牌发评论，发之前核对 PR head 仍是被评审的那个提交。
+#   post  ：不检出、不执行 PR 代码。读用只读的 GITHUB_TOKEN，写评论只用 App 安装令牌（只申请 pull-requests: write）。
+#           发之前机器核对：PR head 仍是被评审的提交；同一 head 尚无本 App 的有效评审（去重）；main 上登记的必需检查
+#           在该 head 上全部完成且成功（未完成、缺失、失败或查询截断时不发 pass）；实现者不属于评审者的体系。
 # 默认停用：仓库变量 GPT_REVIEW_ENABLED=true 才运行。第三方 action 均固定到完整提交 SHA（注释里是对应的标签）。
-# devloop 用 GITHUB_TOKEN 开的 PR 不会触发 pull_request 事件，由 devloop 的 publish 用 workflow_dispatch 触发本工作流。
+# devloop 开出 PR 后也会用 workflow_dispatch 触发本工作流；与事件触发重复时按 head 去重，只发一条。
 name: gpt-review
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
@@ -32,10 +37,13 @@ jobs:
   review:
     if: >-
       vars.GPT_REVIEW_ENABLED == 'true' && (
-      github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request_target' &&
+       github.event.pull_request.base.ref == 'main' &&
+       github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: gpt-review
     permissions:
       contents: read
       pull-requests: read
@@ -99,9 +107,13 @@ jobs:
     needs: review
     if: needs.review.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 最多等必需检查 25 分钟（post.sh 里 WAIT_SECONDS）
+    timeout-minutes: 30
+    environment: gpt-review
     permissions:
       contents: read
+      pull-requests: read
+      checks: read
     steps:
       # 评论用 App 的身份发（mxgarage-vss-gpt[bot]），不用共享的维护者账号，也不用 github-actions
       - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
@@ -111,15 +123,24 @@ jobs:
           private-key: ${{ secrets.GPT_REVIEW_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          # 只申请发 PR 评论所需的权限
+          permission-pull-requests: write
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
           path: _rules
-          sparse-checkout: scripts/gpt-review
+          sparse-checkout: |
+            scripts/gpt-review
+            .github/gpt-review
+          sparse-checkout-cone-mode: false
           persist-credentials: false
-      - name: 发布评审结论
+      - name: 机器核对后发布评审结论
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]
+          READ_TOKEN: ${{ github.token }}
+          REQUIRED_CHECKS_FILE: _rules/.github/gpt-review/required-checks.txt
+          WAIT_SECONDS: '1500'
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number || inputs.pr }}
           HEAD: ${{ needs.review.outputs.head }}

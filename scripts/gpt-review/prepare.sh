@@ -35,7 +35,8 @@ if [ -z "$issue" ]; then
 fi
 files=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" -q '[.[] | {filename, status, additions, deletions}]')
 pr_comments=$(gh api "repos/$REPO/issues/$PR/comments?per_page=100" -q '[.[-30:][] | {author: .user.login, created_at, body}]')
-checks=$(gh api "repos/$REPO/commits/$head/check-runs?per_page=100" -q '[.check_runs[] | {name, status, conclusion, url: .html_url}]')
+# 只是给模型看的参考；pass 能否成立由 post.sh 按 main 上的必需检查清单完整翻页后机器判定
+checks=$(gh api "repos/$REPO/commits/$head/check-runs?per_page=100" -q '{truncated: (.total_count > (.check_runs | length)), runs: [.check_runs[] | {name, status, conclusion, url: .html_url}]}')
 if [ -n "$issue" ]; then
   issue_json=$(gh api "repos/$REPO/issues/$issue" -q '{number, title, state, body, labels: [.labels[].name]}')
   issue_comments=$(gh api "repos/$REPO/issues/$issue/comments?per_page=100" -q '[.[] | {author: .user.login, created_at, body}]')

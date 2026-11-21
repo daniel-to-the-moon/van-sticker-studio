@@ -13,8 +13,15 @@
 
 ## 怎么运行
 
+持有模型密钥与 App 私钥的入口，候选 PR 改不了：
+
+- 触发用 `pull_request_target`：工作流定义取自 PR 的**目标分支**，且只评审目标为 `main`、来自本仓库分支的 PR。候选 PR 里改过的 `gpt-review.yml` 不会被执行（用 `pull_request` 会执行候选里的定义，#120 GPT 复核 P1）。
+- 手动触发只在从 `main` 运行时生效；`--ref` 选别的分支（那会用该分支里的定义）直接跳过。
+- 两个任务都绑定环境 `gpt-review`，密钥只放在这个环境里，环境由维护者限制为只允许 `main`。
+- 评论令牌只申请 `pull-requests: write`；所有查询用只读的 `GITHUB_TOKEN`。
+
 ```
-PR 新提交 / 转 Ready / 手动（gh workflow run gpt-review.yml -f pr=<号>）
+PR 新提交 / 转 Ready / 手动（gh workflow run gpt-review.yml --ref main -f pr=<号>）
   review（只读令牌）
     1. 从 main 稀疏检出评审规则：提示词、schema、AGENTS / CONTRIBUTING / constitution（PR 不能改自己的评审规则）
     2. prepare.sh：在可信目录里写好提示词（只代入 PR 号、完整 head / base SHA 与固定路径）和上下文
@@ -23,7 +30,12 @@ PR 新提交 / 转 Ready / 手动（gh workflow run gpt-review.yml -f pr=<号>�
     4. Codex（openai/codex-action）以可信目录为工作目录、在只读沙箱里运行，按 schema 输出结论
   post（只用 App 令牌）
     5. 核对 PR head 仍是被评审的提交（已变化就不发，新提交会触发新的评审）
-    6. 校验输出符合 schema（不符合就发“评审输出无效”并标记失败），渲染成评论发到 PR
+    6. 去重：本 App 对同一 head 已有有效评审就不再发（事件触发与 devloop 的手动触发可能落在同一 head 上）
+    7. 校验输出符合 schema（不符合就发“评审输出无效”并让运行失败，不会显示成通过）
+    8. 机器核对 pass：main 上登记的必需检查（.github/gpt-review/required-checks.txt，现为 gates）在该 head 上
+       全部完成且成功（完整翻页；未完成时最多等 25 分钟；缺失、失败或查询截断都不算），且 PR 提交的 Executor
+       不属于 GPT 体系（GPT / dot / codex）。任一不满足，模型给的 pass 降为 blocked 并写明原因
+    9. 渲染成评论发到 PR
 ```
 
 评论格式：
@@ -34,21 +46,22 @@ PR 新提交 / 转 Ready / 手动（gh workflow run gpt-review.yml -f pr=<号>�
 结论、摘要、按严重度（P1 / P2 / P3）排序的问题清单、已检查、未检查
 ```
 
-- `pass`：没有 P1 / P2，且 head 上的 CI 检查全绿；`changes`：有 P1 / P2；`blocked`：无法完成评审（CI 未完成或失败、上下文缺失、触碰需要维护者决定的保留项）。
+- `pass`：没有 P1 / P2，且经机器核对必需检查全绿、实现者不属于评审者体系；`changes`：有 P1 / P2；`blocked`：无法完成评审（CI 未完成或失败、上下文缺失、触碰需要维护者决定的保留项）。
 - 只发评论，不提交 GitHub 的“批准 / 请求修改”评审，不改分支保护里的必需评审人数。
 
 devloop 用 `GITHUB_TOKEN` 开的 PR 不会触发 `pull_request` 事件（GitHub 规则），所以 devloop 开出 Draft PR 后会主动触发 `ci.yml` 与本工作流（`docs/DEVLOOP.md`）。触发失败时在 PR 上留言，写明手动命令。
 
 ## 维护者配置（保留项，agent 不代办）
 
-1. OpenAI API key 存为仓库 Secret（只粘到终端提示里）：`gh secret set OPENAI_API_KEY -R daniel-to-the-moon/van-sticker-studio`。按 API 用量计费；建议在 OpenAI 后台给这个 key 设用量上限。
-2. App 身份：
+1. 建环境 `gpt-review` 并限制为只允许 `main`（仓库 Settings → Environments → New environment → Deployment branches and tags 选 Selected branches，只加 `main`）。下面的密钥都存进这个环境，不存成仓库级 Secret。
+2. OpenAI API key 存为环境 Secret（只粘到终端提示里）：`gh secret set OPENAI_API_KEY -R daniel-to-the-moon/van-sticker-studio --env gpt-review`。按 API 用量计费；建议在 OpenAI 后台给这个 key 设用量上限。
+3. App 身份：
    - 在 `mxgarage-vss-gpt` 的 App 设置里确认权限至少有本仓库 **Pull requests: Read and write**（发 PR 评论用），并已安装到本仓库。
    - App ID 存为仓库变量：`gh variable set GPT_REVIEW_APP_ID -R daniel-to-the-moon/van-sticker-studio --body <App ID>`。
-   - 在 App 设置页生成私钥（.pem），存为 Secret：`gh secret set GPT_REVIEW_APP_KEY -R daniel-to-the-moon/van-sticker-studio < 私钥文件.pem`，之后删除本机的 .pem 文件。
-3. 可选：`GPT_REVIEW_MODEL`（不设时用 codex-action 的默认模型）。
-4. 启用：`gh variable set GPT_REVIEW_ENABLED -R daniel-to-the-moon/van-sticker-studio --body true`。
-5. 第一次试跑：对一个小 PR 运行 `gh workflow run gpt-review.yml -R daniel-to-the-moon/van-sticker-studio -f pr=<号>`，看 PR 上是否出现 `mxgarage-vss-gpt[bot]` 的评论。
+   - 在 App 设置页生成私钥（.pem），存为环境 Secret：`gh secret set GPT_REVIEW_APP_KEY -R daniel-to-the-moon/van-sticker-studio --env gpt-review < 私钥文件.pem`，之后删除本机的 .pem 文件。
+4. 可选：`GPT_REVIEW_MODEL`（不设时用 codex-action 的默认模型）。
+5. 启用：`gh variable set GPT_REVIEW_ENABLED -R daniel-to-the-moon/van-sticker-studio --body true`。
+6. 第一次试跑：对一个小 PR 运行 `gh workflow run gpt-review.yml -R daniel-to-the-moon/van-sticker-studio --ref main -f pr=<号>`，看 PR 上是否出现 `mxgarage-vss-gpt[bot]` 的评论。
 
 ## 治理上的地位（待维护者决定）
 
@@ -63,4 +76,5 @@ devloop 用 `GITHUB_TOKEN` 开的 PR 不会触发 `pull_request` 事件（GitHub
 - **提示注入**：PR 的代码、说明文件、提交信息与评论都可能夹带指令。缓解：规则与提示词取自 main；工作目录是只含 main 规则的可信目录；上下文与 PR 检出都标为数据；Codex 只读沙箱；输出必须符合 schema，评论由可信脚本渲染（转义 HTML 注释、不提醒任何人）。仍不能完全排除模型被误导，结论是评审意见，不替代 dot 与维护者的决定。
 - **API key**：review 任务持有 OpenAI API key；codex-action 默认的 `drop-sudo` 策略与只读沙箱限制 Codex 进程，但 key 仍可能因 action 或依赖被投毒而泄露。建议设用量上限，必要时轮换。
 - **只读**：Codex 在只读沙箱里不能跑 `npm` 或测试，只能读代码与上下文里的 CI 结果；`not_checked` 会照实写出。
+- **只记录，不接必需检查**：本工作流的结论不进分支保护的必需检查，也不恢复 devloop 的自动修复。
 - **未在真实 Actions 里运行过**：本 PR 只有脚本行为测试与工作流结构测试；`working-directory`、`--skip-git-repo-check` 与 `:read-only` 的组合需要第一次试跑确认。

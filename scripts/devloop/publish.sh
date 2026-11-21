@@ -94,7 +94,7 @@ case "$pr_num" in '' | *[!0-9]*) pr_num="" ;; esac
 missed=""
 gh workflow run ci.yml -R "$REPO" --ref "$BRANCH" || missed="$missed \`gh workflow run ci.yml --ref $BRANCH\`"
 if [ -n "$pr_num" ]; then
-  gh workflow run gpt-review.yml -R "$REPO" -f pr="$pr_num" || missed="$missed \`gh workflow run gpt-review.yml -f pr=$pr_num\`"
+  gh workflow run gpt-review.yml -R "$REPO" --ref main -f pr="$pr_num" || missed="$missed \`gh workflow run gpt-review.yml --ref main -f pr=$pr_num\`"
 else
   missed="$missed （取不到 PR 编号，GPT 复核未触发）"
 fi

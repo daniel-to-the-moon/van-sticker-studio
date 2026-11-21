@@ -287,7 +287,7 @@ test('publish：开出 PR 后主动触发 CI 与 GPT 复核（GITHUB_TOKEN 开�
   const r = t.run();
   assert.equal(r.status, 0, r.stderr);
   assert.match(t.gh.log(), /^workflow run ci\.yml -R o\/r --ref feature\/4-claude-devloop$/m);
-  assert.match(t.gh.log(), /^workflow run gpt-review\.yml -R o\/r -f pr=77$/m);
+  assert.match(t.gh.log(), /^workflow run gpt-review\.yml -R o\/r --ref main -f pr=77$/m);
   assert.doesNotMatch(t.gh.log(), /^issue comment 77/m);
   const f = publishSetup();
   const rf = f.run({ FAKE_WF_EXIT: '1' });
@@ -296,7 +296,7 @@ test('publish：开出 PR 后主动触发 CI 与 GPT 复核（GITHUB_TOKEN 开�
   assert.match(f.gh.log(), /^issue comment 77 -R o\/r --body-file \S+dispatch\.md$/m);
   const why = readFileSync(f.gh.log().match(/--body-file (\S+dispatch\.md)/)[1], 'utf8');
   assert.match(why, /gh workflow run ci\.yml --ref feature\/4-claude-devloop/);
-  assert.match(why, /gh workflow run gpt-review\.yml -f pr=77/);
+  assert.match(why, /gh workflow run gpt-review\.yml --ref main -f pr=77/);
   // 取不到 PR 编号：不触发评审、也不往不存在的 PR 留言
   const u = publishSetup();
   assert.equal(u.run({ FAKE_PR_URL: '' }).status, 0);
