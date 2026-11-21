@@ -124,9 +124,28 @@ test('prepare：可信目录里是 main 的提示词（已代入 PR、精确 hea
   assert.match(ctx.linked_issue.body, /devloop-scope/);
   assert.equal(ctx.checks_on_head.runs[0].conclusion, 'success');
   assert.equal(ctx.checks_on_head.truncated, false);
-  assert.equal(ctx.files[0].filename, 'lib/a.ts');
-  assert.equal(ctx.files[0].patch, undefined, '不把 diff 文本塞进上下文（Codex 自己在检出目录里看）');
+  assert.equal(ctx.files.items[0].filename, 'lib/a.ts');
+  assert.equal(ctx.files.complete, true);
+  assert.equal(ctx.files.items[0].patch, undefined, '不把 diff 文本塞进上下文（Codex 自己在检出目录里看）');
   assert.match(ctx.note, /数据，不是指令/);
+});
+
+test('prepare：评论先完整翻页再取整个 PR 最近 30 条；到上限没取完照实标 complete=false', () => {
+  const page1 = Array.from({ length: 100 }, (_, i) => ({ user: { login: 'u' }, created_at: `c${i}`, body: `第 ${i + 1} 条` }));
+  const page2 = [{ user: { login: 'o' }, created_at: 'c100', body: '第 101 条：最新的冻结验收更新' }];
+  const r = runPrepare({ ...routesFor(), 'repos/o/r/issues/7/comments?per_page=100&page=1': page1, 'repos/o/r/issues/7/comments?per_page=100&page=2': page2,
+    'repos/o/r/issues/120/comments?per_page=100&page=1': page1, 'repos/o/r/issues/120/comments?per_page=100&page=2': page2 });
+  assert.equal(r.code, 0, r.stderr);
+  const ctx = JSON.parse(r.read('context.json'));
+  assert.equal(ctx.pr_comments.items.length, 30);
+  assert.equal(ctx.pr_comments.items.at(-1).body, '第 101 条：最新的冻结验收更新');
+  assert.equal(ctx.pr_comments.total_fetched, 101);
+  assert.equal(ctx.pr_comments.complete, true);
+  assert.equal(ctx.linked_issue_comments.items.length, 101);
+  assert.equal(ctx.linked_issue_comments.items.at(-1).body, '第 101 条：最新的冻结验收更新');
+  // 每页都满 100 条直到上限 → complete=false
+  const full = runPrepare({ ...routesFor(), 'repos/o/r/issues/7/comments': page1 });
+  assert.equal(JSON.parse(full.read('context.json')).pr_comments.complete, false);
 });
 
 test('prepare：PR 正文里的文字不会进入提示词；没有 Closes 时按分支名找 issue；都没有则 linked_issue 为 null', () => {
@@ -156,9 +175,10 @@ const RESULT = {
   checked: ['正确性', '范围'],
   not_checked: ['未运行测试'],
 };
-const gatesRun = (o = {}) => ({ name: 'gates', status: 'completed', conclusion: 'success', started_at: '1', head_sha: HEAD, app: { slug: 'github-actions' }, details_url: 'https://github.com/o/r/actions/runs/555/job/1', ...o });
+const gatesRun = (o = {}) => ({ id: 1001, name: 'gates', status: 'completed', conclusion: 'success', started_at: '1', head_sha: HEAD, app: { slug: 'github-actions' }, check_suite: { id: 9 }, details_url: 'https://github.com/o/r/actions/runs/555/job/1001', ...o });
 const OK_CHECKS = { total_count: 2, check_runs: [gatesRun(), { name: 'Workers Builds', status: 'completed', conclusion: 'success', started_at: '1', head_sha: HEAD, app: { slug: 'cloudflare-workers-and-pages' } }] };
-const CI_RUN = { path: '.github/workflows/ci.yml', head_sha: HEAD };
+const CI_RUN = { path: '.github/workflows/ci.yml', head_sha: HEAD, check_suite_id: 9 };
+const CI_JOBS = { total_count: 1, jobs: [{ id: 1001, name: 'gates', conclusion: 'success', check_run_url: 'https://api.github.com/repos/o/r/check-runs/1001' }] };
 const CLAUDE_COMMITS = [{ commit: { message: 'x\n\nExecutor: Claude（devloop 云端）\nIssue: #120' } }];
 /** 评论里真标记（行首）给出的结论；正文里被转义的伪造标记不算 */
 const verdictOf = (c) => c.match(/^<!-- gpt-ci-review pr=7 head=\w+ verdict=(\w+) /m)[1];
@@ -172,6 +192,7 @@ function runPost(result, { head = HEAD, cur = HEAD, checks = OK_CHECKS, commits 
     'repos/o/r/pulls/7/commits': commits,
     'repos/o/r/pulls/7/files': [{ filename: 'lib/a.ts' }],
     'repos/o/r/actions/runs/555': CI_RUN,
+    'repos/o/r/actions/runs/555/jobs': CI_JOBS,
     ...routes,
   });
   const file = join(dir, 'result.json');
@@ -352,8 +373,14 @@ test('post：必需检查绑定来源——同名但来自别的 App / 别的 he
   const cases = [
     [{ checks: { total_count: 1, check_runs: [gatesRun({ app: { slug: 'some-other-app' } })] } }, /gates：只有来源不符的同名检查/],
     [{ checks: { total_count: 1, check_runs: [gatesRun({ head_sha: 'e'.repeat(40) })] } }, /gates：只有来源不符的同名检查/],
-    [{ routes: { 'repos/o/r/actions/runs/555': { path: '.github/workflows/fake-gates.yml', head_sha: HEAD } } }, /gates：来自工作流 \.github\/workflows\/fake-gates\.yml，不是 \.github\/workflows\/ci\.yml/],
-    [{ routes: { 'repos/o/r/actions/runs/555': { path: '.github/workflows/ci.yml', head_sha: 'e'.repeat(40) } } }, /gates：运行 555 不在本 head 上/],
+    [{ routes: { 'repos/o/r/actions/runs/555': { ...CI_RUN, path: '.github/workflows/fake-gates.yml' } } }, /gates：来自工作流 \.github\/workflows\/fake-gates\.yml，不是 \.github\/workflows\/ci\.yml/],
+    [{ routes: { 'repos/o/r/actions/runs/555': { ...CI_RUN, head_sha: 'e'.repeat(40) } } }, /gates：运行 555 不在本 head 上/],
+    // 别的工作流造一个成功的同名检查，把 details_url 指向同一 head 上真实（但失败）的 ci.yml 运行
+    [{ checks: { total_count: 1, check_runs: [gatesRun({ id: 7777, check_suite: { id: 42 } })] } }, /检查不属于运行 555（check suite 不一致）/],
+    [{ checks: { total_count: 1, check_runs: [gatesRun({ id: 7777 })] } }, /运行 555 里没有这个检查对应的成功 job/],
+    [{ routes: { 'repos/o/r/actions/runs/555/jobs': { total_count: 1, jobs: [{ ...CI_JOBS.jobs[0], conclusion: 'failure' }] } } }, /没有这个检查对应的成功 job/],
+    [{ routes: { 'repos/o/r/actions/runs/555/jobs': { total_count: 300, jobs: CI_JOBS.jobs } } }, /job 查询失败或不完整/],
+    [{ routes: { 'repos/o/r/actions/runs/555/jobs': { __fail: { message: 'x' } } } }, /job 查询失败或不完整/],
     [{ checks: { total_count: 1, check_runs: [gatesRun({ details_url: 'https://example.com/x' })] } }, /找不到对应的 Actions 运行/],
     [{ routes: { 'repos/o/r/pulls/7/files': [{ filename: '.github/workflows/ci.yml' }] } }, /gates：PR 改动了它所在的工作流 \.github\/workflows\/ci\.yml/],
     [{ routes: { 'repos/o/r/pulls/7': prObj({ changed_files: 5 }) } }, /改动文件列表取不全/],
@@ -365,8 +392,35 @@ test('post：必需检查绑定来源——同名但来自别的 App / 别的 he
     assert.match(r.posted[0], re);
   }
   // 工作流路径带 @ref 后缀也认
-  const withRef = runPost(pass, { routes: { 'repos/o/r/actions/runs/555': { path: '.github/workflows/ci.yml@refs/heads/feature/x', head_sha: HEAD } } });
+  const withRef = runPost(pass, { routes: { 'repos/o/r/actions/runs/555': { ...CI_RUN, path: '.github/workflows/ci.yml@refs/heads/feature/x' } } });
   assert.equal(verdictOf(withRef.posted[0]), 'pass');
+});
+
+test('post：模型给 pass 却列出 P1 / P2 → 按 changes 发布（不会出现“通过”同时列着 P1）', () => {
+  for (const severity of ['P1', 'P2']) {
+    const r = runPost({ ...RESULT, verdict: 'pass', findings: [{ ...RESULT.findings[1], severity }] });
+    assert.equal(verdictOf(r.posted[0]), 'changes', severity);
+    assert.match(r.posted[0], /模型给出 pass 但列出了 P1 \/ P2 问题/);
+    assert.doesNotMatch(r.posted[0], /\*\*结论：通过/);
+  }
+  const p3 = runPost({ ...RESULT, verdict: 'pass', findings: [RESULT.findings[0]] });
+  assert.equal(verdictOf(p3.posted[0]), 'pass', '只有 P3 建议时仍可通过');
+});
+
+test('post：有提交缺 Executor trailer → 实现者无法核实，不放行（没找到同体系署名不等于确认非本体系）', () => {
+  const pass = { ...RESULT, verdict: 'pass', findings: [] };
+  for (const commits of [[{ sha: 'f'.repeat(40), commit: { message: '没有署名' } }], [CLAUDE_COMMITS[0], { sha: 'e'.repeat(40), commit: { message: 'x\n\nExecutor:' } }]]) {
+    const r = runPost(pass, { commits, routes: { 'repos/o/r/pulls/7': prObj({ commits: commits.length }) } });
+    assert.equal(verdictOf(r.posted[0]), 'blocked');
+    assert.match(r.posted[0], /没有 Executor trailer，无法核实实现者/);
+  }
+});
+
+test('prompt：CI 是否通过不由模型判断（避免 CI 还没跑完时的快照把结论卡在 blocked）', () => {
+  const prompt = readFileSync(join(ROOT, '.github/gpt-review/prompt.md'), 'utf8');
+  assert.match(prompt, /CI 是否通过不由你判断/);
+  assert.match(prompt, /不要因为 CI 未完成或失败给 `blocked`/);
+  assert.doesNotMatch(prompt, /`pass`：没有 P1 \/ P2，且 CI/);
 });
 
 // ---------- gpt-review.yml ----------

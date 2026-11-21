@@ -35,16 +35,19 @@ post_comment() {
 }
 # 翻页取数组结果，输出合并后的 JSON 数组；任一页失败或结构不对返回非零。参数：路径、最多页数
 fetch_pages() {
-  local path=$1 max=$2 page=1 all='[]' got sep='?'
+  # 每页先落盘再合并（不用 --argjson 传累积结果：大 PR 会超过单个参数的长度上限）
+  local path=$1 max=$2 page=1 sep='?' dir f
   case "$path" in *\?*) sep='&' ;; esac
+  dir=$(mktemp -d)
   while [ "$page" -le "$max" ]; do
-    got=$(rd "$path${sep}per_page=100&page=$page") || return 1
-    jq -e 'type == "array"' <<<"$got" > /dev/null || return 1
-    all=$(jq -c --argjson a "$all" '$a + .' <<<"$got") || return 1
-    [ "$(jq length <<<"$got")" -eq 100 ] || break
+    f="$dir/$(printf '%03d' "$page").json"
+    rd "$path${sep}per_page=100&page=$page" > "$f" || return 1
+    jq -e 'type == "array"' "$f" > /dev/null || return 1
+    [ "$(jq length "$f")" -eq 100 ] || break
     page=$((page + 1))
   done
-  printf '%s' "$all"
+  jq -cs 'add' "$dir"/*.json || return 1
+  rm -rf "$dir"
 }
 
 cur=$(head_now)
@@ -88,14 +91,16 @@ case "$want_files" in '' | *[!0-9]*) want_files=999999 ;; esac
 required=$(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$REQUIRED_CHECKS_FILE" | sed '/^$/d')
 files=$(fetch_pages "repos/$REPO/pulls/$PR/files" 30 || echo '')
 checks_state() { # 输出 head 上全部 check run 的 JSON 数组；查询失败、结构不对或取不全时返回非零
-  local page=1 all='[]' total got
+  local page=1 total n=0 dir f
+  dir=$(mktemp -d)
   while [ "$page" -le 10 ]; do
-    got=$(rd "repos/$REPO/commits/$HEAD/check-runs?per_page=100&page=$page") || return 1
-    jq -e '(.total_count | type) == "number" and (.check_runs | type) == "array"' <<<"$got" > /dev/null || return 1
-    total=$(jq '.total_count' <<<"$got")
-    all=$(jq -c --argjson a "$all" '$a + .check_runs' <<<"$got") || return 1
-    if [ "$(jq length <<<"$all")" -ge "$total" ]; then printf '%s' "$all"; return 0; fi
-    [ "$(jq '.check_runs | length' <<<"$got")" -gt 0 ] || return 1
+    f="$dir/$(printf '%03d' "$page").json"
+    rd "repos/$REPO/commits/$HEAD/check-runs?per_page=100&page=$page" > "$f" || return 1
+    jq -e '(.total_count | type) == "number" and (.check_runs | type) == "array"' "$f" > /dev/null || return 1
+    total=$(jq '.total_count' "$f")
+    n=$((n + $(jq '.check_runs | length' "$f")))
+    if [ "$n" -ge "$total" ]; then jq -cs 'map(.check_runs) | add // []' "$dir"/*.json; rm -rf "$dir"; return 0; fi
+    [ "$(jq '.check_runs | length' "$f")" -gt 0 ] || return 1
     page=$((page + 1))
   done
   return 1
@@ -127,12 +132,28 @@ gate() { # 输出不满足的必需检查说明（每行一条），空 = 全部
     # 运行证据：检查所属的 Actions 运行必须是预期的工作流文件，且就是这个 head
     run_id=$(jq -r '.details_url // "" | capture("/actions/runs/(?<id>[0-9]+)").id // ""' <<<"$pick")
     if [ -z "$run_id" ]; then echo "$name：找不到对应的 Actions 运行，无法核实来源"; continue; fi
-    if ! meta=$(rd "repos/$REPO/actions/runs/$run_id" -q '{path: (.path // ""), head_sha: (.head_sha // "")}'); then
+    if ! meta=$(rd "repos/$REPO/actions/runs/$run_id" -q '{path: (.path // ""), head_sha: (.head_sha // ""), check_suite_id: (.check_suite_id // 0)}'); then
       echo "$name：运行 $run_id 的来源查询失败，无法核实"
       continue
     fi
     if [ "$(jq -r '.path | sub("@.*$"; "")' <<<"$meta")" != "$wf" ]; then echo "$name：来自工作流 $(jq -r .path <<<"$meta")，不是 $wf"; continue; fi
     if [ "$(jq -r .head_sha <<<"$meta")" != "$HEAD" ]; then echo "$name：运行 $run_id 不在本 head 上"; continue; fi
+    # details_url 是检查创建者自己填的，不能当来源证明：检查必须真的属于这次运行——
+    # 它的 check suite 就是运行的 check suite，且运行的 job 里有同一个 check run（job 的 check_run_url 指向它）并且成功
+    check_id=$(jq -r '.id // ""' <<<"$pick")
+    if [ "$(jq -r '.check_suite.id // ""' <<<"$pick")" != "$(jq -r .check_suite_id <<<"$meta")" ]; then
+      echo "$name：检查不属于运行 $run_id（check suite 不一致），详情链接不能作为来源证明"
+      continue
+    fi
+    # 运行的 job 列表（一次最多 100 个；取不全按无法核实）
+    if ! jobs=$(rd "repos/$REPO/actions/runs/$run_id/jobs?per_page=100" -q 'if (.jobs | type) == "array" and (.total_count | type) == "number" and .total_count <= (.jobs | length) then .jobs else error("incomplete") end'); then
+      echo "$name：运行 $run_id 的 job 查询失败或不完整，无法核实"
+      continue
+    fi
+    if ! jq -e --arg id "$check_id" --arg n "$name" 'type == "array" and any(.[]; ((.check_run_url // "") | endswith("/check-runs/" + $id)) and .name == $n and .conclusion == "success")' <<<"$jobs" > /dev/null; then
+      echo "$name：运行 $run_id 里没有这个检查对应的成功 job，无法证明检查来自该运行"
+      continue
+    fi
   done <<<"$required"
 }
 waited=0
@@ -149,7 +170,11 @@ done
 indep=""
 if commits=$(fetch_pages "repos/$REPO/pulls/$PR/commits" 3) && [ "$(jq length <<<"$commits")" -ge "$want_commits" ]; then
   executors=$(jq -r '[.[].commit.message | capture("(?m)^Executor: *(?<e>.*)$"; "g").e] | unique | join("；")' <<<"$commits")
-  if grep -qiE 'gpt|dot|codex' <<<"$executors"; then
+  # 逐提交核对归属：任何一个提交没有 Executor trailer，实现者就无法核实（没找到同体系署名不等于确认非本体系）
+  unsigned=$(jq -r '[.[] | select((.commit.message | test("(?m)^Executor: *\\S")) | not) | .sha[0:12]] | join("、")' <<<"$commits")
+  if [ -n "$unsigned" ]; then
+    indep="提交 $unsigned 没有 Executor trailer，无法核实实现者是否与评审者同属一个体系"
+  elif grep -qiE 'gpt|dot|codex' <<<"$executors"; then
     indep="实现者（$executors）与本评审者同属 GPT 体系，本评审不算独立评审（AGENTS §0 / §8）"
   fi
 else
@@ -160,7 +185,12 @@ fi
 model_verdict=$(jq -r .verdict "$RESULT_FILE")
 verdict=$model_verdict
 reasons=""
-if [ "$model_verdict" = "pass" ]; then
+# 模型给 pass 却列出 P1 / P2：自相矛盾，按 changes 处理（问题清单优先于结论字段）
+if [ "$model_verdict" = "pass" ] && jq -e 'any(.findings[]; .severity == "P1" or .severity == "P2")' "$RESULT_FILE" > /dev/null; then
+  verdict=changes
+  reasons="模型给出 pass 但列出了 P1 / P2 问题，按问题清单处理"
+fi
+if [ "$verdict" = "pass" ]; then
   if [ -n "$unmet" ]; then verdict=blocked; reasons="必需检查未满足（等待 ${waited} 秒后）：$(join '；' <<<"$unmet")"; fi
   if [ -n "$indep" ]; then verdict=blocked; reasons="${reasons:+$reasons；}$indep"; fi
 fi

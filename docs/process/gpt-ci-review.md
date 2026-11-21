@@ -25,7 +25,7 @@ PR 新提交 / 转 Ready / 手动（gh workflow run gpt-review.yml --ref main -f
   review（只读令牌）
     1. 从 main 稀疏检出评审规则：提示词、schema、AGENTS / CONTRIBUTING / constitution（PR 不能改自己的评审规则）
     2. prepare.sh：在可信目录里写好提示词（只代入 PR 号、完整 head / base SHA 与固定路径）和上下文
-       （PR 元数据与文件清单、关联 issue 正文与评论、最近 30 条 PR 评论、head 上的 CI 检查结果，全部标为数据）
+       （PR 元数据与文件清单、关联 issue 正文与评论、完整翻页后整个 PR 最近 30 条评论、head 上的 CI 检查快照，全部标为数据；没取全的列表标 complete=false）
     3. 检出精确 head 到另一个目录，只作为被评审的数据
     4. Codex（openai/codex-action）以可信目录为工作目录、在只读沙箱里运行，按 schema 输出结论
   post（只用 App 令牌）
@@ -35,8 +35,10 @@ PR 新提交 / 转 Ready / 手动（gh workflow run gpt-review.yml --ref main -f
     7. 校验输出符合 schema（不符合就发“评审输出无效”并让运行失败，不会显示成通过）
     8. 机器核对 pass：main 上登记的必需检查（.github/gpt-review/required-checks.txt，每行“检查名 App 工作流”，
        现为 gates github-actions .github/workflows/ci.yml）必须：由该 App 发出、挂在本 head 上、所属 Actions 运行
-       是该工作流文件且就是本 head、已完成且成功，且 PR 没有改动该工作流文件（完整翻页；未完成时最多等 25 分钟）。
-       完整取到的提交里 Executor 不属于 GPT 体系（GPT / dot / codex）。任何查询失败、结构不对或取不全都算“无法核实”。
+       是该工作流文件且就是本 head、检查确实属于该运行（check suite 一致，且运行里有指向这个 check run 的成功 job；
+       details_url 是创建者自填的，不作为来源证明）、已完成且成功，且 PR 没有改动该工作流文件（完整翻页；未完成时最多等 25 分钟）。
+       完整取到的每个提交都要有 Executor trailer，且不属于 GPT 体系（GPT / dot / codex）；缺署名算“无法核实”。
+       模型给 pass 却列出 P1 / P2 时按 changes 处理。任何查询失败、结构不对或取不全都算“无法核实”。
        任一不满足，模型给的 pass 降为 blocked 并写明原因
     9. 渲染成评论发到 PR
 ```
@@ -49,7 +51,7 @@ PR 新提交 / 转 Ready / 手动（gh workflow run gpt-review.yml --ref main -f
 结论、摘要、按严重度（P1 / P2 / P3）排序的问题清单、已检查、未检查
 ```
 
-- `pass`：没有 P1 / P2，且经机器核对必需检查全绿、实现者不属于评审者体系；`changes`：有 P1 / P2；`blocked`：无法完成评审（CI 未完成或失败、上下文缺失、触碰需要维护者决定的保留项）。
+- `pass`：没有 P1 / P2，且经机器核对必需检查全绿、实现者不属于评审者体系；模型只评代码与证据，CI 状态完全由发布阶段判定（上下文里的检查快照可能还没跑完）；`changes`：有 P1 / P2；`blocked`：无法完成评审（CI 未完成或失败、上下文缺失、触碰需要维护者决定的保留项）。
 - 只发评论，不提交 GitHub 的“批准 / 请求修改”评审，不改分支保护里的必需评审人数。
 
 devloop 用 `GITHUB_TOKEN` 开的 PR 不会触发 `pull_request` 事件（GitHub 规则），所以 devloop 开出 Draft PR 后会主动触发 `ci.yml` 与本工作流（`docs/DEVLOOP.md`）。触发失败时在 PR 上留言，写明手动命令。
