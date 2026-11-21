@@ -77,12 +77,14 @@ boundary_violations() {
 }
 
 # 冻结文件范围：任务 issue 正文里 ```devloop-scope 代码块的每一行（bash 模式，* 可跨目录；# 开头为注释）。
-# 正文由 spec 哈希冻结，所以范围随 spec 冻结。stdin 为 gh issue view --json body 的 JSON；输出模式，每行一个
+# 这是唯一一份清单：允许改动的文件（含测试）与查外部冲突用的是同一份，不默认放行任何路径。
+# 正文由 spec 哈希冻结，所以范围随 spec 冻结；维护者打 devloop 标签即确认这份范围（含共享接口）。
+# stdin 为 gh issue view --json body 的 JSON；输出模式，每行一个
 scope_patterns() {
   jq -r '.body // ""' | tr -d '\r' | awk '/^```devloop-scope[[:space:]]*$/ { f = 1; next } f && /^```/ { f = 0 } f { gsub(/^[ \t]+|[ \t]+$/, ""); if ($0 != "" && $0 !~ /^#/) print }'
 }
-# 路径是否落在声明的范围里（只看声明的模式）。参数：路径、模式文件
-in_declared_scope() {
+# 路径是否落在冻结范围里。参数：路径、模式文件
+in_scope() {
   local p
   while IFS= read -r p; do
     [ -n "$p" ] || continue
@@ -91,35 +93,26 @@ in_declared_scope() {
   done < "$2"
   return 1
 }
-# 允许改动的范围：声明的范围 + 测试（tests/、*.test.*）
-in_scope() {
-  case "$1" in tests/* | *.test.*) return 0 ;; esac
-  in_declared_scope "$1" "$2"
-}
-# 越出冻结文件范围的路径，每行一条。参数：start main new 模式文件 [pr]（pr：另外允许 PR 在 start 时已改动的文件，用于修复）
+# 越出冻结文件范围的路径，每行一条。参数：start main new 模式文件
 scope_violations() {
-  local allowed f
-  allowed=$(mktemp)
-  if [ "${5:-}" = "pr" ]; then git diff -z --no-renames --name-only "$(git merge-base "$2" "$1")" "$1" > "$allowed"; fi
+  local f
   changed_paths "$1" "$2" "$3" | while IFS= read -r -d '' f; do
     [ -n "$f" ] || continue
-    if in_scope "$f" "$4" || grep -qzxF -- "$f" "$allowed"; then continue; fi
-    printf '超出冻结文件范围：%q\n' "$f"
+    in_scope "$f" "$4" || printf '超出冻结文件范围：%q\n' "$f"
   done | LC_ALL=C sort -u
-  rm -f "$allowed"
 }
 
-# 外部认领冲突（需要 gh 与 REPO）：输出冲突说明，每行一条。参数：模式文件、本任务 issue 号
-#  - 其他执行者的开放 PR（非 devloop 分支）改动的文件落在本任务声明的范围里；
-#  - 其他 issue 上他人的 claim 正文提到本范围的路径（取每个模式里第一个通配符之前、至少 3 个字符的字面部分）。
-#  只能发现已开 PR 或在 claim 里写明路径的冲突；语义冲突（共享类型、接口等）靠评审。
+# 外部认领冲突（需要 gh 与 REPO）：输出冲突说明，每行一条。参数：模式文件、本任务 issue 号。用与 in_scope 相同的清单：
+#  - 其他执行者的开放 PR（非 devloop 分支）改动的文件落在冻结范围里；
+#  - 其他 issue 上他人的 claim 正文提到冻结范围里的路径（取每个模式里第一个通配符之前、至少 3 个字符的字面部分）。
+#  只能发现已开 PR 或在 claim 里写明路径的冲突；没写进范围的共享接口，靠维护者打标签前确认范围。
 external_conflicts() {
   local pf=$1 n=$2 num f
   gh pr list -R "$REPO" --state open --limit 100 --json number,headRefName,files \
     | jq -r '.[] | select((.headRefName | test("claude-devloop$")) | not) | .number as $n | .files[]? | "\($n)\t\(.path | @json)"' \
     | while IFS=$'\t' read -r num f; do
       f=$(jq -r . <<<"$f")
-      if in_declared_scope "$f" "$pf"; then printf '其他执行者的开放 PR #%s 改动了范围内的 %q\n' "$num" "$f"; fi
+      if in_scope "$f" "$pf"; then printf '其他执行者的开放 PR #%s 改动了范围内的 %q\n' "$num" "$f"; fi
     done | LC_ALL=C sort -u
   gh issue list -R "$REPO" --state open --limit 100 --json number,comments \
     | jq -r --rawfile pats "$pf" --arg n "$n" "
@@ -130,19 +123,5 @@ external_conflicts() {
       | \"issue #\\(\$i) 上他人的 claim 提到了本任务范围的路径：\\(.url)\"" | LC_ALL=C sort -u
 }
 
-# 可信评审：PR 上由仓库所有者账号发出、首行以“执行者：GPT”开头的最新一条评论。stdin 为 gh pr view --json comments；参数：所有者登录名
-# 输出两行：评论链接、正文 sha256（没有则输出空）
-trusted_review() {
-  local j sel url
-  j=$(cat)
-  sel='[.comments[]? | select((.author.login // "") == $o and (.body | startswith("执行者：GPT")))] | last'
-  url=$(jq -r --arg o "$1" "$sel | .url // \"\"" <<<"$j")
-  [ -n "$url" ] || return 0
-  printf '%s\n' "$url"
-  jq -j --arg o "$1" "$sel | .body" <<<"$j" | sha256sum | cut -c1-64
-}
-
-# 本次运行的 claim：某个对象的评论里由 Actions 发出、带 run=<id> 的 devloop-claim。stdin 为 gh ... --json comments。输出匹配条数
-own_claims() { jq -r --arg m "devloop-claim run=$1 " '[.comments[]? | select((.author.login | test("^github-actions(\\[bot\\])?$")) and (.body | contains($m)))] | length'; }
-# issue 上最近一次 devloop 实现 claim 记录的 spec 哈希（没有则空）。stdin 为 gh issue view --json comments
-claimed_spec() { jq -r '[.comments[]? | select((.author.login | test("^github-actions(\\[bot\\])?$")) and (.body | startswith("执行者：Claude（devloop 云端）")) and (.body | contains("devloop-claim")) and ((.body | contains(" issue=")) | not))] | last | (.body // "") | (capture("spec=(?<s>[0-9a-f]{64})").s // "")'; }
+# 本次运行的 claim：devloop 自己的认领（身份条件同上）且带 run=<id>。stdin 为 gh issue view --json comments。输出匹配条数
+own_claims() { jq -r --arg m "devloop-claim run=$1 " "[.comments[]? | select(($DEVLOOP_SELF_CLAIM_JQ) and (.body | contains(\$m)))] | length"; }

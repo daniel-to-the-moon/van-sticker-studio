@@ -9,14 +9,13 @@
 #   - recovery.bundle（不发布但有改动时）：只含冻结范围内、非禁止路径、非符号链接的净工作树（单个快照提交，不带中间历史），也过密钥扫描。
 #   - body.md / title.txt：所有说明追加完之后再做最终密钥扫描，命中就换成不含路径与原文的状态说明。
 # 区分两种失败：Claude 步骤失败 → 不发布，进入保全；核对不通过 → 不打包 work.bundle，同样只保全范围内的内容。
-# 输入（环境变量）：OUT、UPLOAD、START（基线 SHA）、MODE（implement / fix）、SCOPE_B64（冻结文件范围，base64）、
+# 输入（环境变量）：OUT、UPLOAD、START（基线 SHA）、SCOPE_B64（冻结文件范围，base64）、
 #   RUN_ID、RUN_URL、CLAUDE_OUTCOME、DEVLOOP_SCAN_1..3（本任务可见的密钥值，只用于比对，不打印）
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 : "${OUT:?}" "${UPLOAD:?}" "${RUN_ID:?}" "${RUN_URL:?}"
 rm -rf "$UPLOAD"
 mkdir -p "$UPLOAD" "$OUT"
-MODE=${MODE:-implement}
 START=${START:-}
 main=$(git rev-parse -q --verify refs/remotes/origin/main 2> /dev/null || echo "$START")
 body="$UPLOAD/body.md"
@@ -56,9 +55,7 @@ leaks_git() {
 # 冻结文件范围
 scope=$(mktemp)
 if [ -n "${SCOPE_B64:-}" ]; then printf '%s' "$SCOPE_B64" | base64 -d > "$scope"; fi
-pr_files=$(mktemp)
-if [ "$MODE" = "fix" ] && [ -n "$START" ]; then git diff -z --no-renames --name-only "$(git merge-base "$main" "$START")" "$START" > "$pr_files"; fi
-allowed() { in_scope "$1" "$scope" || grep -qzxF -- "$1" "$pr_files"; }
+allowed() { in_scope "$1" "$scope"; }
 
 # 恢复快照：从基线出发，只纳入冻结范围内、非禁止路径、非符号链接的改动（工作树相对基线的净状态，含未提交与未跟踪文件，
 # 不含 .gitignore 忽略的文件）。单个提交，不带中间历史
@@ -111,7 +108,7 @@ else
   want=$(tr -d '[:space:]' < "$OUT/outcome" 2> /dev/null || true)
   if [ "$want" = "pr" ] && [ -n "$START" ] && [ "$(git rev-parse HEAD)" != "$START" ]; then
     v=$(boundary_violations "$START" "$main" HEAD)
-    s=$(scope_violations "$START" "$main" HEAD "$scope" "$([ "$MODE" = "fix" ] && echo pr || true)")
+    s=$(scope_violations "$START" "$main" HEAD "$scope")
     if [ -n "$v$s" ]; then
       note "未打包、不发布：待推送提交越界——$(printf '%s\n%s' "$v" "$s" | sed '/^$/d' | join_lines '；')"
     elif leaks_git "$START..HEAD"; then
@@ -131,4 +128,4 @@ if leaks_in "$body" "$UPLOAD/title.txt"; then
   if [ "$outcome" = "pr" ]; then outcome=needs-user; rm -f "$UPLOAD/work.bundle"; fi
 fi
 echo "$outcome" > "$UPLOAD/outcome"
-rm -f "$pat" "$scope" "$pr_files"
+rm -f "$pat" "$scope"

@@ -10,15 +10,18 @@
 维护者给 issue 打 devloop 标签（= 授权并 Ready）
         │
   【GitHub Actions】claude.yml（只运行 main 上 scripts/devloop 的可信脚本，除 work 外不执行仓库代码）
-     preflight（issues: write）：确定模式与准确基线（完整 SHA）→ 取得全局锁 devloop-lock（实现与修复都要）→ 实现时另核对冲突、在 issue 发 claim；打 devloop-running
+     preflight（issues: write）：确定准确基线（完整 SHA）→ 取得全局锁 devloop-lock → 核对占用、冻结范围与冲突 → 在 issue 发 claim；打 devloop-running
      work（只读令牌）：检出该基线 → Claude 改代码 + 测试 → 跑门禁 → 本地提交 → 上传前核对 → git bundle（不发布时保全为过滤后的 recovery.bundle）
      publish（写权限）：发布前二次核对（见第四节）→ 全部通过才推到 feature/<N>-claude-devloop → 开 Draft PR（Closes #N）→ 释放锁
         │
   评审与合并：照 AGENTS §8/§13，由非实现者独立评审；评审通过后转 Ready；dot 决定、非实现者合并
-  需要修复：维护者 `gh workflow run claude.yml -f pr=<PR号>`，Claude 读最新一条“执行者：GPT”评审在同一分支修复
+  评审要求修改：devloop 不在 PR 上自动修复。由维护者决定：交给其他执行者在该 PR 上修订（按 §10 接手），
+             或关闭该 PR 后重新派单（新 issue、新冻结范围）。devloop 在自己的 PR 合并或关闭前不开新项
 ```
 
-**未接入**：审核方 watch（本机或云端 Codex 自动审核、签名标记、自动合并）。接入前评审仍按现行流程手动进行，`DEVLOOP_REVIEWER` 保持关闭。
+**只做实现，不做评审触发的修复。** 所有 agent 共用维护者 GitHub 账号，靠“所有者账号 + 执行者：GPT 前缀”认不出真正的评审者，也证明不了评审针对的是哪个提交（#119 GPT 复核）。评审方有可核验的独立身份（例如 #115 的 GitHub App 身份）后，再另行接入修复。
+
+**未接入**：审核方 watch（本机或云端 Codex 自动审核、签名标记、自动合并）。评审按现行流程进行；Codex 由 PR 上的 `@codex review` 触发，GPT（dot）不会被 GitHub 评论自动唤醒（AGENTS §11）。
 
 ## 二、维护者配置（保留项，agent 不代办）
 
@@ -42,24 +45,24 @@
 
 ## 三、怎么用
 
-- **派活**：开一个 issue（一件事、可勾选的验收标准），并在正文里声明**冻结文件范围**，然后由维护者打 `devloop` 标签。打上即触发、即视为授权；issue 正文（含范围）就是冻结 spec。范围写成一个代码块，每行一个允许改动的路径或模式（`*` 可跨目录，`#` 开头为注释；测试 `tests/`、`*.test.*` 默认允许）：
+- **派活**：开一个 issue（一件事、可勾选的验收标准），并在正文里声明**冻结文件范围**，然后由维护者打 `devloop` 标签。打上即触发、即视为授权；issue 正文（含范围）就是冻结 spec。范围写成一个代码块，每行一个允许改动的路径或模式（`*` 可跨目录，`#` 开头为注释）。这是唯一一份清单：不默认放行任何路径，要改的测试和共享接口也要列进去；冲突检查也只用这份清单：
 
   ````
   ```devloop-scope
   lib/sticker-layout.ts
   components/editor/*
+  tests/sticker-layout.test.ts
   ```
   ````
 
-  没写范围的 issue 不开工。devloop 一次只做一项：上一项的 PR 合并或关闭、blocked 的项处理完之前，新打标签的 issue 会停下并加 `needs-user`，之后手动重跑即可。
+  没写范围的 issue 不开工。维护者打 `devloop` 标签即确认这份范围；范围之外的共享接口不在本次改动内。devloop 一次只做一项：上一项的 PR 合并或关闭、blocked 的项处理完之前，新打标签的 issue 会停下并加 `needs-user`，之后手动重跑即可。
 - **看结果**：issue 上先出现 claim（含 run、完整 base SHA、正文 sha256），成功后开 **Draft** PR，分支 `feature/<N>-claude-devloop`，正文按 PR 模板写，每个提交带 `Executor: Claude（devloop 云端）` trailer。独立评审通过后由评审方转 Ready（§13 要求合并时非 Draft）。
 - **停下等人**：开工前有冲突、Claude 判断命中停止条件、云端失败、发布前核对不通过时，在 issue / PR 留说明并加 `needs-user`。
-- **重试**：失败不会自动重派。排除原因后由维护者手动触发——实现：`gh workflow run claude.yml -f issue=<号>`；修复：`gh workflow run claude.yml -f pr=<号>`。手动触发会放行带 `needs-user` 的 issue / PR，成功推送后自动去掉 `needs-user`；标签事件和评论事件不放行 `needs-user`。
+- **重试**：失败不会自动重派。排除原因后由维护者手动触发：`gh workflow run claude.yml -f issue=<号>`。手动触发会放行带 `needs-user` 的 issue，成功推送后自动去掉 `needs-user`；标签事件不放行 `needs-user`。
 - **暂停**：某个 issue / PR 打 `hold`（标签、评论、手动触发都不跑，运行中的任务在发布前也会停下）。全部暂停：`gh variable set DEVLOOP_PAUSED --body true`（恢复：删掉该变量）。彻底停用：删掉 `DEVLOOP_ENABLED`。
 
 ## 四、机器强制的核对（不靠提示词）
 
-实现（implement）与修复（fix）走同一道闸门：都要取得全局锁、有效认领、冻结 spec、准确基线，都过同样的上传前与推送前核对。
 
 **开工前（preflight / claim.sh）**，先取锁，再在锁内核对，任一命中就不开工（留说明、加 `needs-user`、释放锁）：
 
@@ -67,9 +70,8 @@
 - AGENTS §10 每人最多一个活动实现：devloop 在其他分支上还有开放 PR（等待评审 / 合并），或有其他 blocked 的实现（带 devloop claim 且 `needs-user` 的 issue），就不开新的。blocked 不释放名额，锁释放也不等于名额或文件锁可以交接；失败留证后不自动重派，由维护者处理后手动重跑同一项。
 - 任务 issue 上有其他执行者的 claim（首行以“执行者：”开头、含 claim / 认领），按 §11 先发者为准。只有 Actions 发出、首行为“执行者：Claude（devloop 云端）”且带 devloop-claim 标记的评论算 devloop 自己的；正文引用该标记或冒用首行的都算他人。
 - 任务 issue 必须打开、带 `devloop`、无 `hold`，正文里有冻结文件范围（`devloop-scope` 代码块）。
-- 外部认领冲突：其他执行者的开放 PR（非 devloop 分支）改动了范围内的文件，或其他 issue 上他人的 claim 提到了范围内的路径（取每个模式通配符之前、至少 3 个字符的字面部分）。只能发现已开 PR 或在 claim 里写明路径的冲突；共享类型、接口这类语义冲突靠评审。
-- 实现另查：本任务已有开放 PR（`feature/<N>-*` 或 `fix/<N>-*`）；远端已有 `feature/<N>-claude-devloop` 分支（上次的成果，不覆盖）。
-- 修复另查：任务 issue（取自分支名 `feature/<issue>-…-claude-devloop`）上必须有 devloop 的实现 claim，且 issue 正文的 sha256 与那次 claim 一致（spec 被改过就要重新认领，不在旧 PR 上修）；PR 上没有他人 claim；PR 上必须有**可信评审**——仓库所有者账号发出、首行为“执行者：GPT”的评论，取最新一条并固定（链接 + 正文哈希），Claude 只按这一条修，其他评论都只是数据。通过后在 PR 上发修订 claim（run、PR head、spec、评审链接与哈希）。
+- 外部认领冲突：其他执行者的开放 PR（非 devloop 分支）改动了范围内的文件，或其他 issue 上他人的 claim 提到了范围内的路径（取每个模式通配符之前、至少 3 个字符的字面部分）。只能发现已开 PR 或在 claim 里写明路径的冲突；没写进清单的共享接口，靠维护者打标签前确认范围。
+- 本任务已有开放 PR（`feature/<N>-*` 或 `fix/<N>-*`）；远端已有 `feature/<N>-claude-devloop` 分支（上次的成果，不覆盖）。
 - `devloop-running` 只是给人看的运行中标记。
 
 **上传前（work 任务最后一步 / pack.sh）**：产物一离开 runner 就不受推送核对保护，所以先过同样的核对。Claude 写的说明在它可写的目录里，只当输入；pack 先清空并新建上传目录，只把核对通过的明确文件（`outcome`、`body.md`、`title.txt`、`work.bundle`、`recovery.bundle`）写进去。工作流只上传这个目录，且只在 pack 成功退出时上传：核对过程任何意外错误都不上传任何产物，publish 报“没有产物”并加 `needs-user`。Claude 步骤失败与核对不通过分开处理，前者进入保全，后者不打包 `work.bundle`：
@@ -83,11 +85,11 @@
 **推送前（publish.sh）**，任一不通过就不推送：
 
 1. 开关：`DEVLOOP_ENABLED=true` 且未 `DEVLOOP_PAUSED`（在 publish 任务开始时求值）；
-2. 实时状态：issue / PR 仍打开、无 `hold`、实现时仍带 `devloop`；修复时 PR 分支未变，任务 issue 仍打开、带 `devloop`、无 `hold`，所依据的评审仍是最新的可信评审且未被修改；冻结范围仍在，且没有新出现的外部认领冲突；
-3. 认领：目标 issue / PR 上有本次 run 由 Actions 发出的 claim，issue 与 PR 上之后都没有他人 claim；任务 issue 正文的 sha256 与 claim 时一致；
-4. 准确基线：实现时 main 仍是 claim 里的 base（main 前进就停，不在发布阶段 rebase，受测树就是推送树），目标分支不存在；修复时分支 head 仍是开工时的 SHA；
+2. 实时状态：issue 仍打开、带 `devloop`、无 `hold`；冻结范围仍在，且没有新出现的外部认领冲突；
+3. 认领：issue 上有本次 run 由 Actions 发出的 claim，之后没有他人 claim；issue 正文的 sha256 与 claim 时一致；
+4. 准确基线：main 仍是 claim 里的 base（main 前进就停，不在发布阶段 rebase，受测树就是推送树），目标分支不存在；
 5. 文件边界：相对 main 的净改动，**以及每一个待推送的提交**（中间提交加入又删除的文件也会随历史推上去；合并提交只看它自己引入的改动；路径按 NUL 分隔的原始字节匹配，非 ASCII、空格、换行都不会因转义漏判）都不碰禁止路径（`scripts/devloop/lib.sh`：GLB 与 `public/model/`、`dist/`、`.github/`、`.openai/`、`.env*`、`.dev.vars*`、`package.json` / `package-lock.json`、constitution / AGENTS / CLAUDE、`.claude/`、`scripts/devloop/`、`wrangler.*`），任何待推送提交都不新增符号链接；每个待推送的提交（含合并提交）都带 `Executor: Claude（devloop 云端）`；
-6. 冻结文件范围：实现与修复都只能改 issue 声明的范围与测试（`tests/`、`*.test.*`），修复另允许 PR 在开工时已改动的文件；越界要维护者改 spec 并重新认领。
+6. 冻结文件范围：只能改 issue 声明的清单；越界要维护者改 spec 并重新认领。
 
 ## 五、Claude 不写代码、直接 needs-user 的情况
 
@@ -107,11 +109,11 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `.github/workflows/claude.yml` | `preflight` + `work` + `publish`；`workflow_dispatch` 可按 `pr` 或 `issue` 手动重跑 |
-| `scripts/devloop/ctx.sh` | 判断模式（implement / fix）、分支与准确基线；只修本仓库 `feature/*-claude-devloop` 分支 |
-| `scripts/devloop/claim.sh` | 开工前取得全局锁、§10 占用与冲突核对、发 claim（实现与修复） |
+| `.github/workflows/claude.yml` | `preflight` + `work` + `publish`；`workflow_dispatch` 按 `issue` 手动重跑 |
+| `scripts/devloop/ctx.sh` | 确认要实现的 issue（拒绝评论事件与 PR），确定分支与准确基线 |
+| `scripts/devloop/claim.sh` | 开工前取得全局锁、§10 占用、冻结范围与冲突核对、发 claim |
 | `scripts/devloop/pack.sh` | work 结束时决定 outcome；上传前核对与密钥扫描；打包要发布的提交，不发布时保全过滤后的成果 |
 | `scripts/devloop/publish.sh` | 发布前二次核对，通过后推送、开 Draft PR 或评论；不执行仓库代码 |
-| `scripts/devloop/lib.sh` | 共享判断：他人 / 本 run claim、spec 哈希、禁止路径与边界核对、修复范围、全局锁 |
+| `scripts/devloop/lib.sh` | 共享判断：他人 / 本 run claim、spec 哈希、禁止路径与边界核对、冻结范围与外部冲突、全局锁 |
 | `scripts/devloop/install-bun.sh` | 带重试安装 Bun，避开 action 内置下载的偶发失败 |
 | `scripts/devloop/claude.test.mjs` | 上述脚本的行为测试（假 gh + 真 git），以及读取真实 `claude.yml` 求值触发条件、核对权限与版本固定的测试；已加入 `npm test` |
