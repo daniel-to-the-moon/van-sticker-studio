@@ -18,7 +18,8 @@ const sha256 = (s) => createHash('sha256').update(s, 'utf8').digest('hex');
 /**
  * 假 gh：参数逐行记到 gh.log。按子命令输出环境变量里的 JSON，带 -q / --jq 时用真 jq 过滤（脚本里的过滤表达式真实执行）。
  * issue view → FAKE_ISSUE_JSON；pr view → FAKE_PR_JSON；pr list → FAKE_PR_LIST；
- * issue list → 第 k 次调用取 FAKE_ISSUE_LIST_k，没有则 FAKE_ISSUE_LIST；api → FAKE_API。
+ * issue list → FAKE_ISSUE_LIST；api：POST（建锁标签）退出码 FAKE_LOCK_POST_EXIT，DELETE 成功，
+ * 读 labels/devloop-lock → {description: FAKE_LOCK_DESC}（未设则 404），其余 → FAKE_API。issue comment 退出码 FAKE_COMMENT_EXIT。
  */
 function fakeGh(dir) {
   const bin = join(dir, 'bin');
@@ -32,8 +33,12 @@ function fakeGh(dir) {
     '  "issue view") emit "$FAKE_ISSUE_JSON" ;;',
     '  "pr view") emit "$FAKE_PR_JSON" ;;',
     '  "pr list") emit "${FAKE_PR_LIST:-[]}" ;;',
-    `  "issue list") c=$(( $(cat "${join(dir, 'cnt')}" 2>/dev/null || echo 0) + 1 )); echo "$c" > "${join(dir, 'cnt')}"; v="FAKE_ISSUE_LIST_$c"; emit "\${!v:-\${FAKE_ISSUE_LIST:-[]}}" ;;`,
-    '  api\\ *) emit "$FAKE_API" ;;',
+    '  "issue list") emit "${FAKE_ISSUE_LIST:-[]}" ;;',
+    '  "issue comment") exit "${FAKE_COMMENT_EXIT:-0}" ;;',
+    '  api\\ *)',
+    '    if printf "%s\\n" "$@" | grep -qx POST; then exit "${FAKE_LOCK_POST_EXIT:-0}"; fi',
+    '    if printf "%s\\n" "$@" | grep -qx DELETE; then exit 0; fi',
+    '    case "$2" in */labels/devloop-lock) [ -n "${FAKE_LOCK_DESC:-}" ] || exit 1; emit "{\\"description\\":\\"$FAKE_LOCK_DESC\\"}" ;; *) emit "$FAKE_API" ;; esac ;;',
     'esac',
     'exit "${FAKE_GH_EXIT:-0}"',
     '',
@@ -114,10 +119,12 @@ const runClaim = (env) =>
   runScript('claim.sh', { N: '12', BASE: SHA, RUN_ID: '777', RUN_URL: 'https://run', FAKE_ISSUE_JSON: issueJson(), FAKE_API: '[]', ...env });
 const otherClaim = { author: { login: 'daniel-to-the-moon' }, url: 'https://c/1', body: '执行者：Muse｜claim #12\n- 实际执行者 …' };
 
-test('claim：无冲突 → 打 devloop-running、发含 run / 完整 base / spec 哈希的 claim，go=true', () => {
+test('claim：无冲突 → 取得全局锁、打 devloop-running、发含 run / 完整 base / spec 哈希的 claim，go=true', () => {
   const r = runClaim({});
   assert.equal(r.code, 0, r.stderr);
   assert.equal(r.kv.go, 'true');
+  assert.match(r.log, /^api -X POST repos\/o\/r\/labels -f name=devloop-lock -f color=\w+ -f description=issue #12 run 777$/m);
+  assert.doesNotMatch(r.log, /DELETE/, '成功认领后锁要保持到发布结束');
   assert.equal(r.kv.spec, sha256('需求'));
   assert.match(r.log, /^issue edit 12 -R o\/r --add-label devloop-running$/m);
   assert.match(r.log, /^issue comment 12 -R o\/r --body-file /m);
@@ -133,8 +140,8 @@ test('claim：已有他人 claim / 本任务已有开放 PR / 远端已有分支
     他人中文认领: { FAKE_ISSUE_JSON: issueJson({ comments: [{ ...otherClaim, body: '执行者：Grok｜认领本项' }] }) },
     开放PR: { FAKE_PR_LIST: JSON.stringify([{ number: 31, headRefName: 'feature/12-foo' }]) },
     已有分支: { FAKE_API: JSON.stringify([{ ref: 'refs/heads/feature/12-claude-devloop' }]) },
-    WIP上限: { FAKE_ISSUE_LIST: JSON.stringify([{ number: 5 }]) },
-    同一issue已在运行: { FAKE_ISSUE_LIST: JSON.stringify([{ number: 12 }]) },
+    锁被别的实现持有: { FAKE_LOCK_POST_EXIT: '1', FAKE_LOCK_DESC: 'issue #5 run 1' },
+    同一issue上次运行未释放: { FAKE_LOCK_POST_EXIT: '1', FAKE_LOCK_DESC: 'issue #12 run 1' },
   };
   for (const [k, env] of Object.entries(cases)) {
     const r = runClaim(env);
@@ -158,12 +165,19 @@ test('claim：不误判——devloop 自己的旧 claim、普通评论、别的 
   assert.equal(r.kv.go, 'true', r.stderr);
 });
 
-test('claim：并发打标签竞态——打上后看到编号更小的也在运行则让出；看到更大的不让', () => {
-  const lose = runClaim({ FAKE_ISSUE_LIST_1: '[]', FAKE_ISSUE_LIST_2: JSON.stringify([{ number: 7 }, { number: 12 }]) });
-  assert.equal(lose.kv.go, 'false');
-  assert.match(lose.log, /--remove-label devloop-running/);
-  const win = runClaim({ FAKE_ISSUE_LIST_1: '[]', FAKE_ISSUE_LIST_2: JSON.stringify([{ number: 12 }, { number: 30 }]) });
-  assert.equal(win.kv.go, 'true');
+test('claim：互斥靠原子创建锁标签（不是先读后写）；拿不到锁时说明持有者且不删别人的锁', () => {
+  const r = runClaim({ FAKE_LOCK_POST_EXIT: '1', FAKE_LOCK_DESC: 'issue #7 run 9' });
+  assert.equal(r.kv.go, 'false');
+  assert.match(readFileSync(r.log.match(/--body-file (\S+claim-stop\.md)/)[1], 'utf8'), /issue #7 run 9/);
+  assert.doesNotMatch(r.log, /DELETE/);
+  assert.doesNotMatch(r.log, /^issue list/m, '不再依赖非原子的标签列表');
+});
+
+test('claim：取得锁之后发 claim 失败 → 非零退出并释放自己的锁（不泄漏）', () => {
+  const r = runClaim({ FAKE_COMMENT_EXIT: '1', FAKE_LOCK_DESC: 'issue #12 run 777' });
+  assert.notEqual(r.code, 0);
+  assert.match(r.log, /^api -X DELETE repos\/o\/r\/labels\/devloop-lock$/m);
+  assert.notEqual(r.kv.go, 'true');
 });
 
 // ---------- publish.sh ----------
@@ -208,7 +222,8 @@ function publishSetup({ outcome = 'pr', branch = 'feature/9-x-claude-devloop', w
       },
       encoding: 'utf8',
     });
-  return { run, gh, remote, start, newSha, ref: (r) => { try { return execFileSync('git', ['rev-parse', '-q', '--verify', r], { cwd: remote, encoding: 'utf8' }).trim(); } catch { return ''; } } };
+  const rebundle = () => { g(['bundle', 'create', join(out, 'work.bundle'), `${start}..HEAD`, 'HEAD'], wc); return g(['rev-parse', 'HEAD'], wc); };
+  return { run, gh, remote, start, newSha, wc, g, rebundle, ref: (r) => { try { return execFileSync('git', ['rev-parse', '-q', '--verify', r], { cwd: remote, encoding: 'utf8' }).trim(); } catch { return ''; } } };
 }
 /** 在远端 ref 上追加一个提交（模拟 work 运行期间别人推送） */
 function advance(remote, ref, file, content) {
@@ -253,6 +268,23 @@ test('publish：implement 核对通过 → 推送、开 Draft PR、释放 devloo
   assert.match(t.gh.log(), /^pr create -R o\/r --draft --base main --head feature\/4-claude-devloop --title 标题/m);
   assert.match(t.gh.log(), /^issue edit 4 -R o\/r --remove-label devloop-running$/m);
   assert.doesNotMatch(t.gh.log(), /needs-user/);
+});
+
+test('publish：implement 结束只释放自己持有的锁', () => {
+  const mine = publishSetup({ branch: 'feature/4-claude-devloop', createBranch: false });
+  assert.equal(mine.run({ MODE: 'implement', EVENT: 'issues', FAKE_LOCK_DESC: 'issue #4 run 42' }).status, 0);
+  assert.match(mine.gh.log(), /^api -X DELETE repos\/o\/r\/labels\/devloop-lock$/m);
+  const stoppedRun = publishSetup({ outcome: 'needs-user', withBundle: false, branch: 'feature/4-claude-devloop', createBranch: false });
+  stoppedRun.run({ MODE: 'implement', EVENT: 'issues', FAKE_LOCK_DESC: 'issue #4 run 42' });
+  assert.match(stoppedRun.gh.log(), /^api -X DELETE repos\/o\/r\/labels\/devloop-lock$/m);
+  for (const desc of ['issue #5 run 42', 'issue #4 run 41']) {
+    const other = publishSetup({ branch: 'feature/4-claude-devloop', createBranch: false });
+    other.run({ MODE: 'implement', EVENT: 'issues', FAKE_LOCK_DESC: desc });
+    assert.doesNotMatch(other.gh.log(), /DELETE/, desc);
+  }
+  const fix = publishSetup();
+  fix.run({ MODE: 'fix', EVENT: 'issue_comment', FAKE_LOCK_DESC: 'issue #4 run 42' });
+  assert.doesNotMatch(fix.gh.log(), /DELETE/, 'fix 模式不持有锁');
 });
 
 test('publish：implement 期间 main 前进 → 不 rebase、不推送（受测树就是推送树）', () => {
@@ -326,6 +358,58 @@ test('publish：禁止路径、符号链接、缺 Executor trailer → 不推送
   const ok = publishSetup({ files: { 'lib/package-utils.ts': 'x', 'docs/env.md': 'x', 'tests/agents.test.ts': 'x' } });
   assert.equal(ok.run({ MODE: 'fix', EVENT: 'issue_comment' }).status, 0);
   assert.equal(ok.ref('refs/heads/feature/9-x-claude-devloop'), ok.newSha);
+});
+
+const TRAILER = '\n\nExecutor: Claude（devloop 云端）\nIssue: #4';
+test('publish：逐个提交检查——中间提交加入又删除 .env（净改动里看不到）也不推送；中间提交里的符号链接、缺 trailer 的中间提交同样拦下', () => {
+  const t = publishSetup();
+  writeFileSync(join(t.wc, '.env'), 'PLACEHOLDER=1');
+  t.g(['add', '.env'], t.wc);
+  t.g(['commit', '-q', '-m', `add${TRAILER}`], t.wc);
+  t.g(['rm', '-q', '.env'], t.wc);
+  t.g(['commit', '-q', '-m', `rm${TRAILER}`], t.wc);
+  t.rebundle();
+  stopped(t, t.run({ MODE: 'fix', EVENT: 'issue_comment' }), /禁止路径：\.env/);
+  assert.equal(t.ref('refs/heads/feature/9-x-claude-devloop'), t.start);
+
+  const l = publishSetup();
+  execFileSync('ln', ['-s', 'a', join(l.wc, 'tmp-link')]);
+  l.g(['add', 'tmp-link'], l.wc);
+  l.g(['commit', '-q', '-m', `link${TRAILER}`], l.wc);
+  l.g(['rm', '-q', 'tmp-link'], l.wc);
+  l.g(['commit', '-q', '-m', `unlink${TRAILER}`], l.wc);
+  l.rebundle();
+  stopped(l, l.run({ MODE: 'fix', EVENT: 'issue_comment' }), /符号链接/);
+
+  const m = publishSetup({ message: 'no trailer' });
+  writeFileSync(join(m.wc, 'c'), '3');
+  m.g(['add', 'c'], m.wc);
+  m.g(['commit', '-q', '-m', `ok${TRAILER}`], m.wc); // 最后一个提交合规，中间那个不合规
+  m.rebundle();
+  stopped(m, m.run({ MODE: 'fix', EVENT: 'issue_comment' }), /trailer/);
+});
+
+test('publish：fix 合并了 main（main 带 .github 改动）不算越界——只看待推送提交自己引入的改动', () => {
+  const t = publishSetup();
+  advance(t.remote, 'main', '.github/workflows/x.yml', 'on: push');
+  t.g(['fetch', '-q', 'origin', 'main'], t.wc);
+  t.g(['merge', '-q', '--no-ff', 'origin/main', '-m', `merge main${TRAILER}`], t.wc);
+  const tip = t.rebundle();
+  const r = t.run({ MODE: 'fix', EVENT: 'issue_comment' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /published=/);
+  assert.doesNotMatch(r.stdout, /stopped/);
+  assert.equal(t.ref('refs/heads/feature/9-x-claude-devloop'), tip);
+  // 合并提交自己夹带的禁止路径改动仍拦下
+  const e = publishSetup();
+  advance(e.remote, 'main', 'm', '1');
+  e.g(['fetch', '-q', 'origin', 'main'], e.wc);
+  e.g(['merge', '-q', '--no-ff', '--no-commit', 'origin/main'], e.wc);
+  writeFileSync(join(e.wc, 'AGENTS.md'), 'x');
+  e.g(['add', 'AGENTS.md'], e.wc);
+  e.g(['commit', '-q', '-m', `merge${TRAILER}`], e.wc);
+  e.rebundle();
+  stopped(e, e.run({ MODE: 'fix', EVENT: 'issue_comment' }), /禁止路径：AGENTS\.md/);
 });
 
 test('publish：outcome 为 needs-user 或产物缺失 → 评论 + 加 needs-user，不推送；implement 时释放 devloop-running', () => {
@@ -579,4 +663,95 @@ test('claude.yml：权限与依赖——第三方 action 全部固定完整 SHA�
   assert.match(job('work'), /ref: \$\{\{ needs\.preflight\.outputs\.base \}\}/);
   assert.match(job('publish'), /START: \$\{\{ needs\.preflight\.outputs\.base \}\}/);
   assert.match(job('publish'), /ENABLED: \$\{\{ vars\.DEVLOOP_ENABLED \}\}/);
+});
+
+// ---------- pack.sh ----------
+function packSetup() {
+  const dir = join(root, `pack-${n++}`);
+  const wc = join(dir, 'wc');
+  mkdirSync(wc, { recursive: true });
+  const g = (args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: wc, encoding: 'utf8' }).trim();
+  g(['init', '-q', '-b', 'main']);
+  writeFileSync(join(wc, '.gitignore'), 'node_modules/\n');
+  writeFileSync(join(wc, 'a'), '1');
+  g(['add', '-A']);
+  g(['commit', '-q', '-m', 'base']);
+  const start = g(['rev-parse', 'HEAD']);
+  const out = join(dir, 'out');
+  const run = (env) => spawnSync('bash', [join(HERE, 'pack.sh')], { cwd: wc, env: { ...process.env, OUT: out, START: start, RUN_ID: '55', RUN_URL: 'https://run', ...env }, encoding: 'utf8' });
+  const read = (f) => (existsSync(join(out, f)) ? readFileSync(join(out, f), 'utf8') : null);
+  /** 把 bundle 取回到新仓库，返回其中 HEAD 的文件列表 */
+  const filesIn = (bundle) => {
+    const chk = join(dir, `chk-${n++}`);
+    execFileSync('git', ['init', '-q', chk]);
+    execFileSync('git', ['-C', chk, 'fetch', '-q', join(wc, '.git'), start]);
+    execFileSync('git', ['-C', chk, 'fetch', '-q', join(out, bundle), 'HEAD']);
+    return execFileSync('git', ['-C', chk, 'ls-tree', '-r', '--name-only', 'FETCH_HEAD'], { encoding: 'utf8' }).trim().split('\n');
+  };
+  return { wc, g, out, start, run, read, filesIn };
+}
+
+test('pack：Claude 步骤失败 → needs-user，不产出 work.bundle；已有提交与未提交改动保全进 recovery.bundle（忽略文件不带），说明里写取回方法', () => {
+  for (const CLAUDE_OUTCOME of ['failure', 'cancelled', '']) {
+    const t = packSetup();
+    writeFileSync(join(t.wc, 'b'), '2');
+    t.g(['add', 'b']);
+    t.g(['commit', '-q', '-m', 'done part']);
+    writeFileSync(join(t.wc, 'c'), 'wip');
+    mkdirSync(join(t.wc, 'node_modules'));
+    writeFileSync(join(t.wc, 'node_modules', 'x'), 'dep');
+    writeFileSync(join(t.out + '-pre'), ''); // 无关
+    mkdirSync(t.out, { recursive: true });
+    writeFileSync(join(t.out, 'work.bundle'), 'stale'); // 不应残留
+    const r = t.run({ CLAUDE_OUTCOME });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(t.read('outcome').trim(), 'needs-user');
+    assert.equal(t.read('work.bundle'), null);
+    assert.deepEqual(t.filesIn('recovery.bundle').sort(), ['.gitignore', 'a', 'b', 'c']);
+    assert.match(t.read('body.md'), /已保全成果[\s\S]*gh run download 55 -n devloop-55/);
+  }
+});
+
+test('pack：成功且 outcome=pr → 只产出 work.bundle（不含未提交改动），无 recovery；outcome=needs-user 但有提交 → 保全', () => {
+  const t = packSetup();
+  writeFileSync(join(t.wc, 'b'), '2');
+  t.g(['add', 'b']);
+  t.g(['commit', '-q', '-m', 'feat']);
+  writeFileSync(join(t.wc, 'stray'), 'x');
+  mkdirSync(t.out, { recursive: true });
+  writeFileSync(join(t.out, 'outcome'), 'pr\n');
+  writeFileSync(join(t.out, 'body.md'), 'PR 正文');
+  assert.equal(t.run({ CLAUDE_OUTCOME: 'success' }).status, 0);
+  assert.equal(t.read('outcome').trim(), 'pr');
+  assert.deepEqual(t.filesIn('work.bundle').sort(), ['.gitignore', 'a', 'b']);
+  assert.equal(t.read('recovery.bundle'), null);
+  assert.equal(t.read('body.md'), 'PR 正文');
+
+  const u = packSetup();
+  writeFileSync(join(u.wc, 'b'), '2');
+  u.g(['add', 'b']);
+  u.g(['commit', '-q', '-m', 'partial']);
+  mkdirSync(u.out, { recursive: true });
+  writeFileSync(join(u.out, 'outcome'), 'needs-user\n');
+  writeFileSync(join(u.out, 'body.md'), '停下的原因');
+  assert.equal(u.run({ CLAUDE_OUTCOME: 'success' }).status, 0);
+  assert.equal(u.read('outcome').trim(), 'needs-user');
+  assert.equal(u.read('work.bundle'), null);
+  assert.deepEqual(u.filesIn('recovery.bundle').sort(), ['.gitignore', 'a', 'b']);
+  assert.match(u.read('body.md'), /^停下的原因[\s\S]*已保全成果/);
+
+  // 没有任何改动：不产出恢复快照
+  const z = packSetup();
+  assert.equal(z.run({ CLAUDE_OUTCOME: 'failure' }).status, 0);
+  assert.equal(z.read('recovery.bundle'), null);
+  assert.doesNotMatch(z.read('body.md'), /已保全/);
+});
+
+test('claude.yml：打包步骤运行 main 上复制出来的 pack.sh（不用 PR 分支里的版本）', () => {
+  const yml = readFileSync(join(HERE, '../../.github/workflows/claude.yml'), 'utf8');
+  const work = yml.slice(yml.indexOf('  work:'), yml.indexOf('  publish:'));
+  const copy = work.indexOf('cp _devloop/scripts/devloop/pack.sh "$RUNNER_TEMP/pack.sh"');
+  const rootCheckout = work.indexOf('ref: ${{ needs.preflight.outputs.base }}');
+  assert.ok(copy > 0 && copy < rootCheckout);
+  assert.match(work, /if: always\(\)\n(?: {8}.*\n)*? {8}run: bash "\$RUNNER_TEMP\/pack\.sh"/);
 });

@@ -53,7 +53,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      # 只用于发 claim / 停止说明与 needs-user、devloop-running 标签
+      # 只用于发 claim / 停止说明、needs-user 与 devloop-running 标签，以及创建全局互斥锁标签 devloop-lock
       issues: write
     outputs:
       go: ${{ steps.ctx.outputs.mode == 'fix' && 'true' || steps.claim.outputs.go }}
@@ -118,8 +118,10 @@ jobs:
           sparse-checkout: scripts/devloop
           persist-credentials: false
       # 下一步检出到工作区根目录时会清空根目录（包括 _devloop），所以先把要用的 main 上的可信脚本复制到 RUNNER_TEMP
-      - name: 保存 main 上的安装脚本
-        run: cp _devloop/scripts/devloop/install-bun.sh "$RUNNER_TEMP/install-bun.sh"
+      - name: 保存 main 上的安装与打包脚本
+        run: |
+          cp _devloop/scripts/devloop/install-bun.sh "$RUNNER_TEMP/install-bun.sh"
+          cp _devloop/scripts/devloop/pack.sh "$RUNNER_TEMP/pack.sh"
       # 检出 preflight 记录的准确基线（完整 SHA），而不是分支名：受测树与 claim 里的 base 一致
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -202,30 +204,16 @@ jobs:
             --model ${{ vars.CLAUDE_MODEL || 'claude-sonnet-5-5' }}
             --max-turns 120
             --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git:*),Bash(gh:*),Bash(npm ci --ignore-scripts:*),Bash(npm run:*),Bash(npm test:*),Bash(./node_modules/.bin/tsc:*),Bash(node:*),Bash(ls:*),Bash(cat:*),Bash(mkdir:*),Bash(echo:*)"
-      - name: 打包新提交（前面任一步失败也运行，失败时产出 needs-user 说明）
+      # 逻辑在 scripts/devloop/pack.sh（有测试）：不发布时也把已有提交与未提交改动保全为 recovery.bundle
+      - name: 打包新提交或保全成果（前面任一步失败也运行）
         if: always()
         env:
           OUT: ${{ runner.temp }}/devloop
           START: ${{ steps.start.outputs.start }}
+          RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
-        run: |
-          set -uo pipefail
-          mkdir -p "$OUT"
-          if [ "$CLAUDE_OUTCOME" != "success" ]; then
-            # Claude 这一步失败、超时或没运行：不发布任何代码，只报告
-            printf '执行者：Claude（devloop）\n\n云端执行没有正常完成（Claude 步骤结果：%s），自动循环在此停下，请用户查看：%s\n' "${CLAUDE_OUTCOME:-未运行}" "$RUN_URL" > "$OUT/body.md"
-            echo needs-user > "$OUT/outcome"
-            exit 0
-          fi
-          test -f "$OUT/outcome" || echo needs-user > "$OUT/outcome"
-          test -f "$OUT/body.md" || printf '执行者：Claude（devloop）\n\n本次运行没有产出说明，请看 Actions 日志：%s\n' "$RUN_URL" > "$OUT/body.md"
-          if [ "$(tr -d '[:space:]' < "$OUT/outcome")" = "pr" ] && [ -n "$START" ] && [ "$(git rev-parse HEAD)" != "$START" ]; then
-            git bundle create "$OUT/work.bundle" "$START..HEAD" HEAD
-            echo pr > "$OUT/outcome"
-          else
-            echo needs-user > "$OUT/outcome"
-          fi
+        run: bash "$RUNNER_TEMP/pack.sh"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -287,9 +275,14 @@ jobs:
           N: ${{ github.event.issue.number || inputs.pr || inputs.issue }}
           BRANCH: ${{ needs.preflight.outputs.branch }}
           MODE: ${{ needs.preflight.outputs.mode }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           printf '执行者：Claude（devloop）\n\n发布步骤失败（分支：%s）。可能是推送被拒（分支在此期间被更新）或开 PR / 评论失败。自动循环在此停下，请用户查看：%s\n' "${BRANCH:-未知}" "$RUN_URL" > report.md
           gh issue comment "$N" -R "$REPO" --body-file report.md || true
           gh issue edit "$N" -R "$REPO" --add-label needs-user || true
-          if [ "$MODE" = "implement" ]; then gh issue edit "$N" -R "$REPO" --remove-label devloop-running || true; fi
+          if [ "$MODE" = "implement" ]; then
+            gh issue edit "$N" -R "$REPO" --remove-label devloop-running || true
+            . _devloop/scripts/devloop/lib.sh
+            lock_release "$N" "$RUN_ID"
+          fi

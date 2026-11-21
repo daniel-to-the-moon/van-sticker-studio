@@ -18,3 +18,16 @@ forbidden_path() {
   esac
   return 1
 }
+
+# 全局互斥锁：仓库标签 devloop-lock。创建标签是原子操作（已存在则 422），描述记录持有者。
+# 覆盖“核对 → 认领 → 实际执行 → 发布”整个生命周期：claim.sh 取得，publish.sh（或其失败步骤）释放。需要 REPO。
+DEVLOOP_LOCK=devloop-lock
+lock_owner() { echo "issue #$1 run $2"; }
+lock_acquire() { gh api -X POST "repos/$REPO/labels" -f name="$DEVLOOP_LOCK" -f color=b60205 -f description="$(lock_owner "$1" "$2")" > /dev/null 2>&1; }
+lock_holder() { gh api "repos/$REPO/labels/$DEVLOOP_LOCK" -q .description 2> /dev/null || echo "未知"; }
+# 只释放自己持有的锁；锁不存在或属于别人时什么都不做
+lock_release() {
+  local d
+  d=$(gh api "repos/$REPO/labels/$DEVLOOP_LOCK" -q .description 2> /dev/null) || return 0
+  if [ "$d" = "$(lock_owner "$1" "$2")" ]; then gh api -X DELETE "repos/$REPO/labels/$DEVLOOP_LOCK" > /dev/null || true; fi
+}

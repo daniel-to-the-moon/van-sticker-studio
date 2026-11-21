@@ -9,8 +9,11 @@ set -euo pipefail
 mkdir -p "$OUT"
 
 release() {
-  # 实现结束（无论结果）释放 WIP 名额
-  if [ "$MODE" = "implement" ]; then gh issue edit "$N" -R "$REPO" --remove-label devloop-running || true; fi
+  # 实现结束（无论结果）释放 WIP 名额：运行中标记与全局互斥锁
+  if [ "$MODE" = "implement" ]; then
+    gh issue edit "$N" -R "$REPO" --remove-label devloop-running || true
+    lock_release "$N" "${RUN_ID:-}"
+  fi
 }
 stop() {
   printf '执行者：Claude（devloop 云端）；角色：实现者；Issue：#%s\n\n发布前核对未通过，没有推送：%s\n\n产物在本次运行的 artifact 里保留 7 天：%s\n' "$N" "$1" "$RUN_URL" > "$OUT/stop.md"
@@ -76,17 +79,31 @@ else
   [ "$(remote "$BRANCH")" = "$START" ] || stop "分支 \`$BRANCH\` 在运行期间被更新（不再是 \`$START\`），不覆盖。"
 fi
 
-# 5. 文件边界（机器强制，不靠提示词）：以合入 main 后的净改动计
+# 5. 文件边界（机器强制，不靠提示词）：既查合入 main 后的净改动，也逐个查每个待推送的提交——
+#    中间提交加入又删除的敏感文件也会随历史推上去
 git cat-file -e "$main^{commit}" 2>/dev/null || git fetch -q origin "$main"
 mb=$(git merge-base "$main" "$new")
-bad=$(git diff --no-renames --name-only "$mb" "$new" | while IFS= read -r f; do if forbidden_path "$f"; then echo "$f"; fi; done)
+commits=$(git rev-list "$new" --not "$START" "$main")
+changed() {
+  git diff --no-renames --name-only "$mb" "$new"
+  for c in $commits; do
+    if [ "$(git rev-list --parents -n 1 "$c" | wc -w)" -gt 2 ]; then
+      git diff-tree --cc --name-only --no-commit-id "$c" # 合并提交：只看它自己引入的改动（与所有父提交都不同的文件）
+    else
+      git diff-tree -r --no-renames --name-only --no-commit-id "$c"
+    fi
+  done
+}
+bad=$(changed | LC_ALL=C sort -u | while IFS= read -r f; do if [ -n "$f" ] && forbidden_path "$f"; then echo "$f"; fi; done)
 [ -z "$bad" ] || stop "改动了禁止路径：$(echo $bad)"
-links=$(git diff --no-renames --raw "$mb" "$new" | awk '$2 == "120000" { print $NF }')
+syms() { git ls-tree -r "$1" | awk -F '\t' '{ split($1, m, " ") } m[1] == "120000" { print $2 }'; }
+base_links=$({ syms "$START"; syms "$main"; } | LC_ALL=C sort -u)
+links=$(for c in $commits; do syms "$c"; done | LC_ALL=C sort -u | LC_ALL=C comm -23 - <(printf '%s\n' "$base_links"))
 [ -z "$links" ] || stop "新增或改为符号链接：$(echo $links)"
 
-# 6. 提交归属：分支主线上每个新提交都带 Executor trailer
-for c in $(git rev-list --first-parent "$START..$new"); do
-  git show -s --format=%B "$c" | grep -qx 'Executor: Claude（devloop 云端）' || stop "提交 \`$c\` 缺少 \`Executor: Claude（devloop 云端）\` trailer。"
+# 6. 提交归属：每个待推送的提交（含合并提交）都带 Executor trailer
+for c in $commits; do
+  git show -s --format=%B "$c" | grep -x 'Executor: Claude（devloop 云端）' > /dev/null || stop "提交 \`$c\` 缺少 \`Executor: Claude（devloop 云端）\` trailer。"
 done
 
 # 核对全部通过：普通推送（分支在此期间被别人更新导致非快进则失败，不覆盖）

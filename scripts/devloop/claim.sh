@@ -27,18 +27,14 @@ prs=$(gh pr list -R "$REPO" --state open --limit 200 --json number,headRefName \
 exists=$(gh api "repos/$REPO/git/matching-refs/heads/$branch" -q "[.[] | select(.ref == \"refs/heads/$branch\")] | length")
 [ "$exists" = "0" ] || stop "远端已有分支 \`$branch\`（上一次的成果）。不覆盖；确认可以丢弃后由维护者删除该分支，或改为修复它所在的 PR。"
 
-running() { gh issue list -R "$REPO" --state open --label devloop-running --limit 50 --json number -q '[.[].number] | map(tostring) | join(" ")'; }
-r=$(running)
-[ -z "$r" ] || stop "已有 devloop 实现在运行（issue #${r// / #}）。devloop 同一时间只做一项实现（WIP 上限 1，避免文件 / 语义冲突）。"
-
-# 并发打标签的竞态：两边都打上后再看一次，编号大的让出（编号小的看到的“其他”只会是更大的编号，它不让）
+# WIP 上限 1：取得全局互斥锁（原子），持有到发布结束。拿不到就不开工
+if ! lock_acquire "$N" "$RUN_ID"; then
+  stop "已有 devloop 实现持有互斥锁（$(lock_holder)）。devloop 同一时间只做一项实现（WIP 上限 1，避免文件 / 语义冲突）。若确认那次运行已结束，维护者删除仓库标签 \`devloop-lock\` 后重跑。"
+fi
+# 取得锁之后任何一步失败（发 claim 失败等）都释放锁，避免锁泄漏
+trap '[ "${claimed:-}" = 1 ] || lock_release "$N" "$RUN_ID"' EXIT
+# devloop-running：给人看的运行中标记（锁以 devloop-lock 为准）
 gh issue edit "$N" -R "$REPO" --add-label devloop-running
-for m in $(running); do
-  if [ "$m" != "$N" ] && [ "$m" -lt "$N" ]; then
-    gh issue edit "$N" -R "$REPO" --remove-label devloop-running
-    stop "与 issue #$m 同时开工，按编号让出（WIP 上限 1）。"
-  fi
-done
 
 spec=$(spec_hash <<<"$issue")
 cat > "${RUNNER_TEMP:-/tmp}/claim.md" <<EOF
@@ -50,7 +46,7 @@ cat > "${RUNNER_TEMP:-/tmp}/claim.md" <<EOF
 - 冻结 spec / 验收：本 issue 正文，sha256 \`$spec\`。运行期间正文被改动，发布前核对不通过，不写入。
 - 目标 / 非目标：按 issue 正文；不做正文以外的改动。
 - base：main \`$BASE\`（完整 SHA）。main 在运行期间前进则不发布，重新开工。
-- 文件 / 语义锁：开工前未知，以 PR 中的实际文件清单为准；机器强制的禁止路径见 scripts/devloop/lib.sh（GLB 与资产元数据、dist、.github、密钥与私有配置、依赖清单、constitution / AGENTS / CLAUDE、devloop 自身）。devloop 同一时间只做一项实现。
+- 文件 / 语义锁：开工前未知，以 PR 中的实际文件清单为准；机器强制的禁止路径见 scripts/devloop/lib.sh（GLB 与资产元数据、dist、.github、密钥与私有配置、依赖清单、constitution / AGENTS / CLAUDE、devloop 自身）。devloop 同一时间只做一项实现（全局互斥锁 `devloop-lock`）。
 - 依赖：无新增依赖。
 - 状态责任人：devloop（本 run）；停下时加 \`needs-user\` 交维护者。
 - 下一步：实现 → 门禁 → 发布前二次核对 → 推送 \`$branch\` 并开 Draft PR，等待非本体系独立评审。
@@ -60,3 +56,4 @@ gh issue comment "$N" -R "$REPO" --body-file "${RUNNER_TEMP:-/tmp}/claim.md"
   echo "go=true"
   echo "spec=$spec"
 } >> "$GITHUB_OUTPUT"
+claimed=1
