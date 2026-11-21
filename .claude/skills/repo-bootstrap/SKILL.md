@@ -12,7 +12,7 @@ description: Use when creating a new GitHub repo or initializing an existing one
 ## 0. 先问清楚（一次问完，没回答就用默认值并写明）
 
 1. 仓库 owner/名称；个人账号还是组织。
-2. 技术栈与门禁命令（默认 Node 22：`npm ci --ignore-scripts`、`npm run lint`、`npm test`、`npx tsc --noEmit`、`npm run build`）。
+2. 技术栈与门禁命令（默认 Node 22：`npm ci --ignore-scripts`、`npm run lint`、`npm test`、`./node_modules/.bin/tsc --noEmit`（不用 `npx`，缺失时它可能下载包）、`npm run build`）。
 3. 有没有网页界面；部署目标（Cloudflare Workers / 其他 / 不部署）。
 4. 有哪些 agent、怎么分体系（同体系互相不算独立评审），维护者的 GitHub 登录名。
 5. 本次授权范围：哪些文件可改；哪些属于维护者保留项（账号、App、私钥、Secrets、规则集、分支保护、变量、上线）。

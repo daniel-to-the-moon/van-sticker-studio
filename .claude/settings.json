@@ -5,7 +5,7 @@
       "Bash(npm ci --ignore-scripts)",
       "Bash(npm run lint)",
       "Bash(npm test)",
-      "Bash(npx tsc --noEmit)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
       "Bash(npm run build)",
       "Bash(node --experimental-strip-types --test:*)",
       "Bash(git status:*)",

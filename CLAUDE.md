@@ -25,7 +25,7 @@
 npm ci --ignore-scripts   # 无人值守只按锁文件装，不运行依赖的安装脚本（AGENTS §0）
 npm run lint
 npm test
-npx tsc --noEmit
+./node_modules/.bin/tsc --noEmit   # 只用锁文件装好的 TypeScript；缺失即失败，不用 npx（可能下载）
 npm run build
 ```
 
