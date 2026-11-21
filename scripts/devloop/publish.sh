@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # claude.yml publish 任务：发布前二次核对，全部通过才把 work 产出的提交推到 feature/*-claude-devloop 分支，并开 Draft PR 或评论。
 # 由 claude.test.mjs 用假 gh + 真 git 测试。本脚本来自 main（可信），不检出、不执行 PR 里的任何代码。
-# 输入（环境变量）：OUT（work 产物目录）、REPO、N、MODE、BRANCH、START（preflight 记录的准确基线）、EVENT、RUN_ID、RUN_URL、
+# 输入（环境变量）：OUT（work 产物目录）、REPO、N、MODE、ISSUE（任务所属 issue）、BRANCH、START（preflight 记录的准确基线）、EVENT、RUN_ID、RUN_URL、
 #   PUSH_URL（git 远端地址）、ENABLED / PAUSED（本任务开始时的仓库变量 DEVLOOP_ENABLED / DEVLOOP_PAUSED）、SPEC（claim 时的 spec 哈希）
 # 核对不通过：评论原因 + 加 needs-user，不写入（exit 0）。命令本身失败（非零）时由调用方的 failure() 步骤报告。
 set -euo pipefail
@@ -41,21 +41,24 @@ case "$START" in *[!0-9a-f]* | '') echo "::error::基线不是 SHA：${START:-�
 [ "${ENABLED:-}" = "true" ] || stop "devloop 已停用（仓库变量 DEVLOOP_ENABLED 不是 true）。"
 [ "${PAUSED:-}" != "true" ] || stop "devloop 已全局暂停（DEVLOOP_PAUSED=true）。"
 
-# 2. 实时标签与状态；3. 认领与冻结 spec（implement）
+# 2. 实时标签与状态；3. 认领与冻结 spec（implement 与 fix 同样核对：本 run 的 claim 存在、之后无他人 claim、spec 未变）
+ISSUE=${ISSUE:-$N}
 if [ "$MODE" = "implement" ]; then
-  issue=$(gh issue view "$N" -R "$REPO" --json state,labels,body,comments)
-  why=$(jq -r '[.labels[].name] as $l | if .state != "OPEN" then "issue 已关闭" elif ($l | index("devloop")) == null then "devloop 标签已被移除" elif ($l | index("hold")) != null then "issue 已加 hold" else "ok" end' <<<"$issue")
-  [ "$why" = "ok" ] || stop "$why。"
-  mine=$(jq -r --arg m "devloop-claim run=$RUN_ID " '[.comments[]? | select((.author.login | test("^github-actions(\\[bot\\])?$")) and (.body | contains($m)))] | length' <<<"$issue")
-  [ "$mine" != "0" ] || stop "找不到本次运行（run $RUN_ID）由 Actions 发出的 claim。"
-  others=$(jq -r "$DEVLOOP_OTHER_CLAIMS_JQ" <<<"$issue")
-  [ -z "$others" ] || stop "运行期间出现了其他执行者的 claim（$others），按 AGENTS §11 先发者为准。"
-  [ -n "${SPEC:-}" ] && [ "$(spec_hash <<<"$issue")" = "$SPEC" ] || stop "issue 正文（冻结 spec）在运行期间被修改，按新 spec 重新开工。"
+  target=$(gh issue view "$N" -R "$REPO" --json state,labels,body,comments)
+  why=$(jq -r '[.labels[].name] as $l | if .state != "OPEN" then "issue 已关闭" elif ($l | index("devloop")) == null then "devloop 标签已被移除" elif ($l | index("hold")) != null then "issue 已加 hold" else "ok" end' <<<"$target")
+  issue=$target
 else
-  pr=$(gh pr view "$N" -R "$REPO" --json state,labels,headRefName)
-  why=$(jq -r --arg b "$BRANCH" 'if .state != "OPEN" then "PR 已关闭" elif .headRefName != $b then "PR 分支已变化" elif ([.labels[].name] | index("hold")) != null then "PR 已加 hold" else "ok" end' <<<"$pr")
-  [ "$why" = "ok" ] || stop "$why。"
+  target=$(gh pr view "$N" -R "$REPO" --json state,labels,headRefName,comments)
+  why=$(jq -r --arg b "$BRANCH" 'if .state != "OPEN" then "PR 已关闭" elif .headRefName != $b then "PR 分支已变化" elif ([.labels[].name] | index("hold")) != null then "PR 已加 hold" else "ok" end' <<<"$target")
+  issue=$(gh issue view "$ISSUE" -R "$REPO" --json body,comments)
 fi
+[ "$why" = "ok" ] || stop "$why。"
+[ "$(own_claims "$RUN_ID" <<<"$target")" != "0" ] || stop "找不到本次运行（run $RUN_ID）由 Actions 发出的 claim。"
+for j in "$target" "$issue"; do
+  others=$(jq -r "$DEVLOOP_OTHER_CLAIMS_JQ" <<<"$j")
+  [ -z "$others" ] || stop "运行期间出现了其他执行者的 claim（$others），按 AGENTS §11 先发者为准。"
+done
+[ -n "${SPEC:-}" ] && [ "$(spec_hash <<<"$issue")" = "$SPEC" ] || stop "issue #$ISSUE 正文（冻结 spec）在运行期间被修改，按新 spec 重新开工。"
 
 work=$(mktemp -d)
 git init -q "$work"
@@ -77,43 +80,16 @@ else
   [ "$(remote "$BRANCH")" = "$START" ] || stop "分支 \`$BRANCH\` 在运行期间被更新（不再是 \`$START\`），不覆盖。"
 fi
 
-# 5. 文件边界（机器强制，不靠提示词）：既查合入 main 后的净改动，也逐个查每个待推送的提交——
-#    中间提交加入又删除的敏感文件也会随历史推上去
+# 5. 文件边界与提交归属（机器强制，不靠提示词；与 pack.sh 上传前的核对共用 lib.sh）：
+#    相对 main 的净改动 + 每个待推送提交（中间提交加入又删除的文件也会随历史推上去）；路径按 NUL 分隔原始路径匹配
 git cat-file -e "$main^{commit}" 2>/dev/null || git fetch -q origin "$main"
-mb=$(git merge-base "$main" "$new")
-commits=$(git rev-list "$new" --not "$START" "$main")
-# 路径一律用 -z（NUL 分隔的原始路径）：默认输出会把非 ASCII / 特殊字符路径加引号转义，模式就匹配不上
-changed() {
-  git diff -z --no-renames --name-only "$mb" "$new"
-  for c in $commits; do
-    if [ "$(git rev-list --parents -n 1 "$c" | wc -w)" -gt 2 ]; then
-      git diff-tree -z --cc --name-only --no-commit-id "$c" # 合并提交：只看它自己引入的改动（与所有父提交都不同的文件）
-    else
-      git diff-tree -z -r --no-renames --name-only --no-commit-id "$c"
-    fi
-  done
-}
-bad=""
-while IFS= read -r -d '' f; do
-  if [ -n "$f" ] && forbidden_path "$f"; then bad="$bad $(printf '%q' "$f")"; fi
-done < <(changed)
-[ -z "$bad" ] || stop "改动了禁止路径：${bad# }"
-# 符号链接：待推送提交的树里出现、而基线与 main 里都不是符号链接的路径
-was_link() { [ "$(git --literal-pathspecs ls-tree "$1" -- "$2" | cut -d ' ' -f 1)" = "120000" ]; }
-links=""
-for c in $commits; do
-  while IFS= read -r -d '' e; do
-    [ "${e%% *}" = "120000" ] || continue
-    p=${e#*$'\t'}
-    was_link "$START" "$p" || was_link "$main" "$p" || links="$links $(printf '%q' "$p")"
-  done < <(git ls-tree -r -z "$c")
-done
-[ -z "$links" ] || stop "新增或改为符号链接：${links# }"
-
-# 6. 提交归属：每个待推送的提交（含合并提交）都带 Executor trailer
-for c in $commits; do
-  git show -s --format=%B "$c" | grep -x 'Executor: Claude（devloop 云端）' > /dev/null || stop "提交 \`$c\` 缺少 \`Executor: Claude（devloop 云端）\` trailer。"
-done
+v=$(boundary_violations "$START" "$main" "$new")
+[ -z "$v" ] || stop "$(printf '%s' "$v" | paste -sd '；' -)"
+# 6. 修复限于冻结文件范围：PR 在 base 时已改动的文件 + tests/、docs/
+if [ "$MODE" = "fix" ]; then
+  v=$(scope_violations "$START" "$main" "$new")
+  [ -z "$v" ] || stop "$(printf '%s' "$v" | paste -sd '；' -)。超出范围的修改需要维护者重新认领。"
+fi
 
 # 核对全部通过：普通推送（分支在此期间被别人更新导致非快进则失败，不覆盖）
 git push -q origin "$new:refs/heads/$BRANCH"

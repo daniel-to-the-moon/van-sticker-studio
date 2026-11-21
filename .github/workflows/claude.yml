@@ -60,6 +60,7 @@ jobs:
       mode: ${{ steps.ctx.outputs.mode }}
       branch: ${{ steps.ctx.outputs.branch }}
       base: ${{ steps.ctx.outputs.base }}
+      issue: ${{ steps.ctx.outputs.issue }}
       spec: ${{ steps.claim.outputs.spec }}
     steps:
       # 判断与认领逻辑在 scripts/devloop/ctx.sh、claim.sh（有测试）；取 main 上的版本（可信），不用 PR 里的
@@ -81,10 +82,11 @@ jobs:
         run: |
           [ -z "$BOTH" ] || { echo "::error::pr 与 issue 只能填一个" >&2; exit 1; }
           bash _devloop/scripts/devloop/ctx.sh
-      - name: 取得全局锁；implement 另核对冲突并发 claim
+      - name: 取得全局锁、核对占用与冲突、发 claim（implement 与 fix 同一道闸门）
         id: claim
         env:
           MODE: ${{ steps.ctx.outputs.mode }}
+          ISSUE: ${{ steps.ctx.outputs.issue }}
           GH_TOKEN: ${{ github.token }}
           N: ${{ steps.ctx.outputs.number }}
           REPO: ${{ github.repository }}
@@ -122,6 +124,7 @@ jobs:
         run: |
           cp _devloop/scripts/devloop/install-bun.sh "$RUNNER_TEMP/install-bun.sh"
           cp _devloop/scripts/devloop/pack.sh "$RUNNER_TEMP/pack.sh"
+          cp _devloop/scripts/devloop/lib.sh "$RUNNER_TEMP/lib.sh"
       # 检出 preflight 记录的准确基线（完整 SHA），而不是分支名：受测树与 claim 里的 base 一致
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -189,7 +192,7 @@ jobs:
               改了 scripts/devloop 时另跑 `node --test scripts/devloop/*.test.mjs`；纯文档改动不需要 npm。
               代码问题导致失败就继续修，不要提交失败的代码。若某项只因 `--ignore-scripts` 跑不了，不要去掉这个参数，在 body.md 写明“本地未运行及原因”，以 PR 上的 gates CI 为准。
             - 每个提交信息末尾带两行 trailer：`Executor: Claude（devloop 云端）` 与 `Issue: #编号`（合并提交也要，用 `git merge -m`）。一个提交只做一件事。
-            - 发布阶段会机器核对：禁止路径（scripts/devloop/lib.sh）、符号链接、trailer、基线未变、spec 未变；任一不通过就不推送。不要试图绕过。
+            - 上传与发布前会机器核对：禁止路径（scripts/devloop/lib.sh，逐个提交）、符号链接、trailer、基线未变、spec 未变、修复的文件范围；产物里出现本任务的密钥值会被丢弃。任一不通过就不推送。不要试图绕过。
             - 不要合并、不要审核自己的改动。
 
             implement 模式：用 `gh issue view ${{ github.event.issue.number || inputs.pr || inputs.issue }} --comments` 读 issue。
@@ -198,13 +201,15 @@ jobs:
 
             fix 模式：用 `gh pr view ${{ github.event.issue.number || inputs.pr || inputs.issue }} --comments` 读 PR，以最新一条“执行者：GPT”评论为准。
               逐条处理 blocker 与 major；minor 合理就改；不同意的给出依据，不要静默忽略。
+              只改 PR 已改动的文件以及 tests/、docs/ 下的文件；需要改别的文件时 outcome 写 needs-user 说明原因（发布阶段会机器核对范围）。
               测试失败时用评论里 Actions 链接的运行号执行 `gh run view <运行号> --log-failed` 看日志；冲突时 `git merge origin/main` 解决。
               本地 commit；body.md 逐条列出每个意见的处理结果。
           claude_args: |
             --model ${{ vars.CLAUDE_MODEL || 'claude-sonnet-5-5' }}
             --max-turns 120
             --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git:*),Bash(gh:*),Bash(npm ci --ignore-scripts:*),Bash(npm run:*),Bash(npm test:*),Bash(./node_modules/.bin/tsc:*),Bash(node:*),Bash(ls:*),Bash(cat:*),Bash(mkdir:*),Bash(echo:*)"
-      # 逻辑在 scripts/devloop/pack.sh（有测试）：不发布时也把已有提交与未提交改动保全为 recovery.bundle
+      # 逻辑在 scripts/devloop/pack.sh（有测试）。上传边界：只产出明确文件，每个先过与 publish 相同的边界核对和密钥扫描；
+      # 不发布时把批准范围内的净工作树保全为 recovery.bundle（不含禁止路径、符号链接与中间历史）
       - name: 打包新提交或保全成果（前面任一步失败也运行）
         if: always()
         env:
@@ -213,12 +218,22 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+          # 只用于扫描产物里是否出现这些值（grep -F，不打印）；命中就丢弃对应产物
+          DEVLOOP_SCAN_1: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          DEVLOOP_SCAN_2: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEVLOOP_SCAN_3: ${{ github.token }}
         run: bash "$RUNNER_TEMP/pack.sh"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: devloop-${{ github.run_id }}
-          path: ${{ runner.temp }}/devloop
+          # 只上传 pack.sh 核对过的明确文件，不上传目录里的其他东西
+          path: |
+            ${{ runner.temp }}/devloop/outcome
+            ${{ runner.temp }}/devloop/body.md
+            ${{ runner.temp }}/devloop/title.txt
+            ${{ runner.temp }}/devloop/work.bundle
+            ${{ runner.temp }}/devloop/recovery.bundle
           retention-days: 7
 
   publish:
@@ -252,6 +267,7 @@ jobs:
           REPO: ${{ github.repository }}
           N: ${{ github.event.issue.number || inputs.pr || inputs.issue }}
           MODE: ${{ needs.preflight.outputs.mode }}
+          ISSUE: ${{ needs.preflight.outputs.issue }}
           BRANCH: ${{ needs.preflight.outputs.branch }}
           START: ${{ needs.preflight.outputs.base }}
           SPEC: ${{ needs.preflight.outputs.spec }}

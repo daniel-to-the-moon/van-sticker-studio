@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # claude.yml preflight 任务第一步：确定模式（implement / fix）、目标分支、编号与准确基线。由 claude.test.mjs 用假 gh 测试。
 # 输入（环境变量）：EVENT（issues / issue_comment / workflow_dispatch）、N（issue 或 PR 编号）、REPO、KIND（手动触发时：issue = 实现 issue，其余 = 修复 PR）
-# 输出：向 $GITHUB_OUTPUT 写 mode=、branch=、number=、base=（完整 SHA）；不合规时以非零退出
+# 输出：向 $GITHUB_OUTPUT 写 mode=、branch=、number=、issue=（任务所属 issue；fix 时从分支名 feature/<issue>-…-claude-devloop 取）、base=（完整 SHA）；不合规时以非零退出
 set -euo pipefail
 case "${N:-}" in '' | *[!0-9]*) echo "::error::编号必须是数字：${N:-}" >&2; exit 1 ;; esac
 if [ "$EVENT" = "issues" ] || { [ "$EVENT" = "workflow_dispatch" ] && [ "${KIND:-}" = "issue" ]; }; then
@@ -18,6 +18,7 @@ if [ "$EVENT" = "issues" ] || { [ "$EVENT" = "workflow_dispatch" ] && [ "${KIND:
   [ "$why" = "ok" ] || { echo "::error::issue #$N 不可实现：$why" >&2; exit 1; }
   mode=implement
   branch="feature/$N-claude-devloop"
+  issue=$N
   base=$(gh api "repos/$REPO/git/ref/heads/main" -q .object.sha)
 else
   # issue_comment 与 workflow_dispatch 都是修复已有 PR：只接受本仓库、打开、feature/*-claude-devloop 分支、不带 hold 的 PR
@@ -28,6 +29,9 @@ else
   [ "$why" = "ok" ] || { echo "::error::PR #$N 不可修复：$why" >&2; exit 1; }
   mode=fix
   branch="$b"
+  issue=${b#feature/}
+  issue=${issue%%-*}
+  case "$issue" in '' | *[!0-9]*) echo "::error::分支名里取不到 issue 编号：$b" >&2; exit 1 ;; esac
   base=$(jq -r .headRefOid <<<"$j")
 fi
 case "$base" in *[!0-9a-f]* | '') echo "::error::取不到完整基线 SHA：${base:-空}" >&2; exit 1 ;; esac
@@ -36,5 +40,6 @@ case "$base" in *[!0-9a-f]* | '') echo "::error::取不到完整基线 SHA：${b
   echo "mode=$mode"
   echo "branch=$branch"
   echo "number=$N"
+  echo "issue=$issue"
   echo "base=$base"
 } >> "$GITHUB_OUTPUT"
