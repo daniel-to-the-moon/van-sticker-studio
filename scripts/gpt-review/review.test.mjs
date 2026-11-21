@@ -161,6 +161,11 @@ test('prepare：PR 正文里的文字不会进入提示词；没有 Closes 时�
 test('prepare：拒绝——fork 的 PR、已关闭的 PR、取不到完整 SHA、编号不是数字', () => {
   assert.notEqual(runPrepare(routesFor(prObj({ head: { sha: HEAD, ref: 'x', repo: { full_name: 'evil/r' } } }))).code, 0);
   assert.notEqual(runPrepare(routesFor(prObj({ state: 'closed' }))).code, 0);
+  // 假事件：从 main 手动触发、但输入的 PR 目标不是 main → 在模型步骤之前拒绝
+  const notMain = runPrepare(routesFor(prObj({ base: { sha: BASE, ref: 'release' } })));
+  assert.notEqual(notMain.code, 0);
+  assert.match(notMain.stderr, /只评审目标为 main 的 PR（PR #7 的目标是 release）/);
+  assert.equal(notMain.read('prompt.md'), null, '拒绝时不生成提示词');
   assert.notEqual(runPrepare(routesFor(prObj({ head: { sha: 'abc', ref: 'x', repo: { full_name: 'o/r' } } }))).code, 0);
   for (const PR of ['', '7; id', '$(id)']) assert.notEqual(runPrepare(routesFor(), { PR }).code, 0, PR);
 });
@@ -177,7 +182,7 @@ const RESULT = {
 };
 const gatesRun = (o = {}) => ({ id: 1001, name: 'gates', status: 'completed', conclusion: 'success', started_at: '1', head_sha: HEAD, app: { slug: 'github-actions' }, check_suite: { id: 9 }, details_url: 'https://github.com/o/r/actions/runs/555/job/1001', ...o });
 const OK_CHECKS = { total_count: 2, check_runs: [gatesRun(), { name: 'Workers Builds', status: 'completed', conclusion: 'success', started_at: '1', head_sha: HEAD, app: { slug: 'cloudflare-workers-and-pages' } }] };
-const CI_RUN = { path: '.github/workflows/ci.yml', head_sha: HEAD, check_suite_id: 9 };
+const CI_RUN = { path: '.github/workflows/ci.yml', head_sha: HEAD, check_suite_id: 9, event: 'workflow_dispatch' };
 const CI_JOBS = { total_count: 1, jobs: [{ id: 1001, name: 'gates', conclusion: 'success', check_run_url: 'https://api.github.com/repos/o/r/check-runs/1001' }] };
 const CLAUDE_COMMITS = [{ commit: { message: 'x\n\nExecutor: Claude（devloop 云端）\nIssue: #120' } }];
 /** 评论里真标记（行首）给出的结论；正文里被转义的伪造标记不算 */
@@ -283,7 +288,10 @@ test('post：pass 由机器把关——必需检查缺失 / 未完成 / 失败 /
   // 同名检查取最新一次：旧的失败、新的成功 → 成立
   const rerun = runPost(pass, { checks: { total_count: 2, check_runs: [gatesRun({ conclusion: 'failure', started_at: '2026-01-01' }), gatesRun({ started_at: '2026-01-02' })] } });
   assert.equal(verdictOf(rerun.posted[0]), 'pass');
-  assert.match(rerun.posted[0], /\*\*必需检查（机器核对）\*\*：gates 均来自预期的工作流、运行在本 head 上、完成且成功｜\*\*实现者\*\*：Claude（devloop 云端）/);
+  assert.match(rerun.posted[0], /\*\*必需检查（机器核对）\*\*：gates 均来自预期的工作流、运行在本 head 上、完成且成功（gates：运行 555（workflow_dispatch，测的是本 head 本身））｜\*\*实现者\*\*：Claude（devloop 云端）/);
+  // pull_request 事件的 CI 测的是临时合并提交，照实记录
+  const merged = runPost(pass, { routes: { 'repos/o/r/actions/runs/555': { ...CI_RUN, event: 'pull_request' } } });
+  assert.match(merged.posted[0], /gates：运行 555（pull_request，测的是本 head 与 base 的临时合并提交）/);
   // 模型给 changes 时不改，只附上机器核对结果
   const ch = runPost(RESULT, { checks: { total_count: 0, check_runs: [] } });
   assert.equal(verdictOf(ch.posted[0]), 'changes');

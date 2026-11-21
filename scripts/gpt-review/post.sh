@@ -132,7 +132,7 @@ gate() { # 输出不满足的必需检查说明（每行一条），空 = 全部
     # 运行证据：检查所属的 Actions 运行必须是预期的工作流文件，且就是这个 head
     run_id=$(jq -r '.details_url // "" | capture("/actions/runs/(?<id>[0-9]+)").id // ""' <<<"$pick")
     if [ -z "$run_id" ]; then echo "$name：找不到对应的 Actions 运行，无法核实来源"; continue; fi
-    if ! meta=$(rd "repos/$REPO/actions/runs/$run_id" -q '{path: (.path // ""), head_sha: (.head_sha // ""), check_suite_id: (.check_suite_id // 0)}'); then
+    if ! meta=$(rd "repos/$REPO/actions/runs/$run_id" -q '{path: (.path // ""), head_sha: (.head_sha // ""), check_suite_id: (.check_suite_id // 0), event: (.event // "")}'); then
       echo "$name：运行 $run_id 的来源查询失败，无法核实"
       continue
     fi
@@ -154,10 +154,17 @@ gate() { # 输出不满足的必需检查说明（每行一条），空 = 全部
       echo "$name：运行 $run_id 里没有这个检查对应的成功 job，无法证明检查来自该运行"
       continue
     fi
+    # 记录 CI 测的是什么：pull_request 事件测的是 head 与 base 的临时合并提交，其他事件（devloop 的手动触发、push）测的是 head 本身
+    case "$(jq -r .event <<<"$meta")" in
+      pull_request) printf '%s：运行 %s（pull_request，测的是本 head 与 base 的临时合并提交）\n' "$name" "$run_id" >> "$evidence" ;;
+      *) printf '%s：运行 %s（%s，测的是本 head 本身）\n' "$name" "$run_id" "$(jq -r .event <<<"$meta")" >> "$evidence" ;;
+    esac
   done <<<"$required"
 }
 waited=0
+evidence=$(mktemp)
 while :; do
+  : > "$evidence"
   runs=$(checks_state || true)
   unmet=$(gate "$runs")
   # 只在“未完成 / 缺失”时继续等（检查可能还没开始或还在跑）；其他问题不会自己消失
@@ -194,7 +201,7 @@ if [ "$verdict" = "pass" ]; then
   if [ -n "$unmet" ]; then verdict=blocked; reasons="必需检查未满足（等待 ${waited} 秒后）：$(join '；' <<<"$unmet")"; fi
   if [ -n "$indep" ]; then verdict=blocked; reasons="${reasons:+$reasons；}$indep"; fi
 fi
-checks_line=$(if [ -z "$required" ]; then echo "未登记必需检查"; elif [ -z "$unmet" ]; then echo "$(cut -d ' ' -f 1 <<<"$required" | join '、') 均来自预期的工作流、运行在本 head 上、完成且成功"; else join '；' <<<"$unmet"; fi)
+checks_line=$(if [ -z "$required" ]; then echo "未登记必需检查"; elif [ -z "$unmet" ]; then echo "$(cut -d ' ' -f 1 <<<"$required" | join '、') 均来自预期的工作流、运行在本 head 上、完成且成功（$(join '；' < "$evidence")）"; else join '；' <<<"$unmet"; fi)
 
 # 模型输出是不可信文本：去掉 HTML 注释记号（防止伪造结论标记）、给 @ 加零宽空格（不提醒任何人）、压平换行与反引号
 jq -r --arg head_line "$head_line" --arg pr "$PR" --arg head "$HEAD" --arg run "$RUN_ID" --arg rules "$RULES" --arg footer "$footer" \

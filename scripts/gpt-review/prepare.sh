@@ -13,6 +13,8 @@ state=$(jq -r .state <<<"$pr")
 [ "$state" = "open" ] || { echo "::error::PR #$PR 不是打开状态（$state）" >&2; exit 1; }
 # 只评审本仓库分支上的 PR：外部 fork 的 PR 不拿 API key 跑
 [ "$(jq -r .head.repo.full_name <<<"$pr")" = "$REPO" ] || { echo "::error::只评审本仓库分支上的 PR" >&2; exit 1; }
+# 只评审目标为 main 的 PR：手动触发时工作流虽然从 main 启动，输入的 PR 可能指向别的目标分支（在模型步骤之前拒绝）
+[ "$(jq -r .base.ref <<<"$pr")" = "main" ] || { echo "::error::只评审目标为 main 的 PR（PR #$PR 的目标是 $(jq -r .base.ref <<<"$pr")）" >&2; exit 1; }
 head=$(jq -r .head.sha <<<"$pr")
 base=$(jq -r .base.sha <<<"$pr")
 sha_ok "$head" && sha_ok "$base" || { echo "::error::取不到完整的 head / base SHA" >&2; exit 1; }

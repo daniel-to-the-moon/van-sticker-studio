@@ -15,7 +15,7 @@
 
 持有模型密钥与 App 私钥的入口，候选 PR 改不了：
 
-- 触发用 `pull_request_target`：工作流定义取自 PR 的**目标分支**，且只评审目标为 `main`、来自本仓库分支的 PR。候选 PR 里改过的 `gpt-review.yml` 不会被执行（用 `pull_request` 会执行候选里的定义，#120 GPT 复核 P1）。
+- 触发用 `pull_request_target`：工作流定义取自 PR 的**目标分支**，且只评审目标为 `main`、来自本仓库分支的 PR。手动触发时 `prepare.sh` 在模型步骤之前再核对一次输入 PR 的目标是 `main`。候选 PR 里改过的 `gpt-review.yml` 不会被执行（用 `pull_request` 会执行候选里的定义，#120 GPT 复核 P1）。
 - 手动触发只在从 `main` 运行时生效；`--ref` 选别的分支（那会用该分支里的定义）直接跳过。
 - 两个任务都绑定环境 `gpt-review`，密钥只放在这个环境里，环境由维护者限制为只允许 `main`。
 - 评论令牌只申请 `pull-requests: write`；所有查询用只读的 `GITHUB_TOKEN`。
@@ -39,6 +39,7 @@ PR 新提交 / 转 Ready / 手动（gh workflow run gpt-review.yml --ref main -f
        details_url 是创建者自填的，不作为来源证明）、已完成且成功，且 PR 没有改动该工作流文件（完整翻页；未完成时最多等 25 分钟）。
        完整取到的每个提交都要有 Executor trailer，且不属于 GPT 体系（GPT / dot / codex）；缺署名算“无法核实”。
        模型给 pass 却列出 P1 / P2 时按 changes 处理。任何查询失败、结构不对或取不全都算“无法核实”。
+       评论里记录 CI 测的是什么：pull_request 事件测 head 与 base 的临时合并提交，devloop 的手动触发测 head 本身。
        任一不满足，模型给的 pass 降为 blocked 并写明原因
     9. 渲染成评论发到 PR
 ```
