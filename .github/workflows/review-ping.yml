@@ -1,0 +1,16 @@
+# 评审提交/撤回时触发 independence-gate（后者经 workflow_run 从 main 的版本运行）。
+# 本工作流不读任何东西、不需要权限；PR 改它也拿不到闸门的私钥。
+name: review-ping
+
+on:
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - run: echo "review on PR ${{ github.event.pull_request.number }} at ${{ github.event.pull_request.head.sha }}"
