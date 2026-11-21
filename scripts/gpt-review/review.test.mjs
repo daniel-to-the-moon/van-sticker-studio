@@ -44,7 +44,16 @@ if (fi >= 0 && a[fi + 1].startsWith('body=@')) {
 const routes = JSON.parse(fs.readFileSync(${JSON.stringify(join(dir, 'routes.json'))}, 'utf8'));
 const key = path in routes ? path : path.split('?')[0];
 if (!(key in routes)) { process.stderr.write('no route ' + path); process.exit(1); }
-const json = JSON.stringify(routes[key]);
+let val = routes[key];
+// {__seq: [...]}：按调用次数依次返回（最后一个之后一直返回最后一个）；{__fail: body}：像真 gh 一样输出错误 JSON 并退出 1
+if (val && val.__seq) {
+  const cf = ${JSON.stringify(join(dir, 'seq-'))} + Buffer.from(key).toString('hex');
+  const k = fs.existsSync(cf) ? Number(fs.readFileSync(cf, 'utf8')) : 0;
+  fs.writeFileSync(cf, String(k + 1));
+  val = val.__seq[Math.min(k, val.__seq.length - 1)];
+}
+if (val && val.__fail) { process.stdout.write(JSON.stringify(val.__fail)); process.stderr.write('gh: HTTP 403'); process.exit(1); }
+const json = JSON.stringify(val);
 process.stdout.write(qi >= 0 ? execFileSync('jq', ['-r', a[qi + 1]], { input: json }).toString() : json);
 `,
   );
@@ -57,7 +66,7 @@ process.stdout.write(qi >= 0 ? execFileSync('jq', ['-r', a[qi + 1]], { input: js
 }
 
 const prObj = (o = {}) => ({
-  number: 7, state: 'open', title: 'T', body: '说明\n\nCloses #120', draft: true, user: { login: 'github-actions[bot]' },
+  number: 7, state: 'open', title: 'T', body: '说明\n\nCloses #120', draft: true, user: { login: 'github-actions[bot]' }, commits: 1, changed_files: 1,
   head: { sha: HEAD, ref: 'feature/120-claude-devloop', repo: { full_name: 'o/r' } }, base: { sha: BASE, ref: 'main' }, ...o,
 });
 const routesFor = (pr = prObj()) => ({
@@ -147,7 +156,9 @@ const RESULT = {
   checked: ['正确性', '范围'],
   not_checked: ['未运行测试'],
 };
-const OK_CHECKS = { total_count: 2, check_runs: [{ name: 'gates', status: 'completed', conclusion: 'success', started_at: '1' }, { name: 'Workers Builds', status: 'completed', conclusion: 'success', started_at: '1' }] };
+const gatesRun = (o = {}) => ({ name: 'gates', status: 'completed', conclusion: 'success', started_at: '1', head_sha: HEAD, app: { slug: 'github-actions' }, details_url: 'https://github.com/o/r/actions/runs/555/job/1', ...o });
+const OK_CHECKS = { total_count: 2, check_runs: [gatesRun(), { name: 'Workers Builds', status: 'completed', conclusion: 'success', started_at: '1', head_sha: HEAD, app: { slug: 'cloudflare-workers-and-pages' } }] };
+const CI_RUN = { path: '.github/workflows/ci.yml', head_sha: HEAD };
 const CLAUDE_COMMITS = [{ commit: { message: 'x\n\nExecutor: Claude（devloop 云端）\nIssue: #120' } }];
 /** 评论里真标记（行首）给出的结论；正文里被转义的伪造标记不算 */
 const verdictOf = (c) => c.match(/^<!-- gpt-ci-review pr=7 head=\w+ verdict=(\w+) /m)[1];
@@ -159,12 +170,14 @@ function runPost(result, { head = HEAD, cur = HEAD, checks = OK_CHECKS, commits 
     'repos/o/r/issues/7/comments': comments,
     [`repos/o/r/commits/${head}/check-runs`]: checks,
     'repos/o/r/pulls/7/commits': commits,
+    'repos/o/r/pulls/7/files': [{ filename: 'lib/a.ts' }],
+    'repos/o/r/actions/runs/555': CI_RUN,
     ...routes,
   });
   const file = join(dir, 'result.json');
   writeFileSync(file, typeof result === 'string' ? result : JSON.stringify(result));
   const req = join(dir, 'required.txt');
-  writeFileSync(req, '# 注释\ngates\n\n');
+  writeFileSync(req, '# 注释\ngates github-actions .github/workflows/ci.yml\n\n');
   const r = spawnSync('bash', [join(HERE, 'post.sh')], {
     env: {
       ...process.env, PATH: gh.path, REPO: 'o/r', PR: '7', HEAD: head, RULES: 'c'.repeat(40), RESULT_FILE: file, RUN_ID: '99', RUN_URL: 'https://run',
@@ -188,7 +201,7 @@ test('post：渲染结论评论——首行身份、带精确 head 的标记、�
   assert.match(c, /- \*\*P3\*\* `lib\/b\.ts` 建议/);
   assert.match(c, /\*\*已检查\*\*：正确性；范围/);
   assert.match(c, /\*\*未检查\*\*：未运行测试/);
-  assert.match(c, /评审规则、提示词与必需检查清单取自 main @ `c{40}`/);
+  assert.match(c, /评审规则、提示词、必需检查清单与本发布脚本取自 main @ `c{40}`/);
 });
 
 test('post：模型输出当不可信文本——伪造的结论标记被转义、@ 不会提醒人；评论里只有一个真标记', () => {
@@ -230,10 +243,10 @@ test('post：只用 App 令牌写、只读令牌读（假凭据）', () => {
 test('post：pass 由机器把关——必需检查缺失 / 未完成 / 失败 / 查询截断，或实现者与评审者同属 GPT 体系 → 降为 blocked 并写明原因', () => {
   const pass = { ...RESULT, verdict: 'pass', findings: [] };
   const cases = [
-    [{ checks: { total_count: 1, check_runs: [{ name: 'Workers Builds', status: 'completed', conclusion: 'success' }] } }, /gates：缺失/],
-    [{ checks: { total_count: 1, check_runs: [{ name: 'gates', status: 'in_progress', conclusion: null }] } }, /gates：未完成（in_progress）/],
-    [{ checks: { total_count: 1, check_runs: [{ name: 'gates', status: 'completed', conclusion: 'failure' }] } }, /gates：未通过（failure）/],
-    [{ checks: { total_count: 500, check_runs: [{ name: 'gates', status: 'completed', conclusion: 'success' }] } }, /查询不完整/],
+    [{ checks: { total_count: 1, check_runs: [{ name: 'Workers Builds', status: 'completed', conclusion: 'success', head_sha: HEAD, app: { slug: 'x' } }] } }, /gates：缺失/],
+    [{ checks: { total_count: 1, check_runs: [gatesRun({ status: 'in_progress', conclusion: null })] } }, /gates：未完成（in_progress）/],
+    [{ checks: { total_count: 1, check_runs: [gatesRun({ conclusion: 'failure' })] } }, /gates：未通过（failure）/],
+    [{ checks: { total_count: 500, check_runs: [gatesRun()] } }, /查询失败、结构不对或不完整/],
     [{ commits: [{ commit: { message: 'x\n\nExecutor: Codex（codex 对话）' } }] }, /与本评审者同属 GPT 体系/],
     [{ commits: [{ commit: { message: 'x\n\nExecutor: GPT（dot）' } }] }, /与本评审者同属 GPT 体系/],
   ];
@@ -247,9 +260,9 @@ test('post：pass 由机器把关——必需检查缺失 / 未完成 / 失败 /
     assert.doesNotMatch(c, /\*\*结论：通过/);
   }
   // 同名检查取最新一次：旧的失败、新的成功 → 成立
-  const rerun = runPost(pass, { checks: { total_count: 2, check_runs: [{ name: 'gates', status: 'completed', conclusion: 'failure', started_at: '2026-01-01' }, { name: 'gates', status: 'completed', conclusion: 'success', started_at: '2026-01-02' }] } });
+  const rerun = runPost(pass, { checks: { total_count: 2, check_runs: [gatesRun({ conclusion: 'failure', started_at: '2026-01-01' }), gatesRun({ started_at: '2026-01-02' })] } });
   assert.equal(verdictOf(rerun.posted[0]), 'pass');
-  assert.match(rerun.posted[0], /\*\*必需检查（机器核对）\*\*：gates 全部完成且成功｜\*\*实现者\*\*：Claude（devloop 云端）/);
+  assert.match(rerun.posted[0], /\*\*必需检查（机器核对）\*\*：gates 均来自预期的工作流、运行在本 head 上、完成且成功｜\*\*实现者\*\*：Claude（devloop 云端）/);
   // 模型给 changes 时不改，只附上机器核对结果
   const ch = runPost(RESULT, { checks: { total_count: 0, check_runs: [] } });
   assert.equal(verdictOf(ch.posted[0]), 'changes');
@@ -258,7 +271,7 @@ test('post：pass 由机器把关——必需检查缺失 / 未完成 / 失败 /
 
 test('post：翻页取全检查结果（第二页里的 gates 也算）', () => {
   const page1 = { total_count: 101, check_runs: Array.from({ length: 100 }, (_, i) => ({ name: `x${i}`, status: 'completed', conclusion: 'success' })) };
-  const page2 = { total_count: 101, check_runs: [{ name: 'gates', status: 'completed', conclusion: 'success' }] };
+  const page2 = { total_count: 101, check_runs: [gatesRun()] };
   const r = runPost({ ...RESULT, verdict: 'pass', findings: [] }, { routes: {
     [`repos/o/r/commits/${HEAD}/check-runs?per_page=100&page=1`]: page1,
     [`repos/o/r/commits/${HEAD}/check-runs?per_page=100&page=2`]: page2,
@@ -266,17 +279,94 @@ test('post：翻页取全检查结果（第二页里的 gates 也算）', () => 
   assert.equal(verdictOf(r.posted[0]), 'pass', r.stderr);
 });
 
-test('post：同一 head 去重——本 App 已有有效评审就不再发；error 评审、别的 head、冒用标记的其他账号不算', () => {
+test('post：同一 head 去重——本 App 已有终局结论（pass / changes）才不再发；blocked、error、别的 head、冒用标记的账号、正文里引用的标记都不算', () => {
   const marker = (h, v) => `执行者：GPT（CI 评审）\n<!-- gpt-ci-review pr=7 head=${h} verdict=${v} run=1 rules=x -->`;
   const dup = runPost(RESULT, { comments: [{ user: { login: 'mxgarage-vss-gpt[bot]' }, body: marker(HEAD, 'changes') }] });
   assert.equal(dup.code, 0);
   assert.equal(dup.posted.length, 0);
   assert.match(dup.stdout, /不重复发/);
+  assert.equal(runPost(RESULT, { comments: [{ user: { login: 'mxgarage-vss-gpt[bot]' }, body: marker(HEAD, 'pass') }] }).posted.length, 0);
   for (const comments of [
     [{ user: { login: 'mxgarage-vss-gpt[bot]' }, body: marker(HEAD, 'error') }],
+    [{ user: { login: 'mxgarage-vss-gpt[bot]' }, body: marker(HEAD, 'blocked') }],
+    [{ user: { login: 'mxgarage-vss-gpt[bot]' }, body: `正文里引用：\`${marker(HEAD, 'pass').split('\n')[1]}\`` }],
     [{ user: { login: 'mxgarage-vss-gpt[bot]' }, body: marker('d'.repeat(40), 'pass') }],
     [{ user: { login: 'daniel-to-the-moon' }, body: marker(HEAD, 'pass') }],
   ]) assert.equal(runPost(RESULT, { comments }).posted.length, 1, JSON.stringify(comments));
+});
+
+test('post：阻塞解除后同一 head 可以重新发布——先 blocked（CI 未完成），CI 成功后再跑一次发出 pass', () => {
+  const pass = { ...RESULT, verdict: 'pass', findings: [] };
+  const first = runPost(pass, { checks: { total_count: 1, check_runs: [gatesRun({ status: 'in_progress', conclusion: null })] } });
+  assert.equal(verdictOf(first.posted[0]), 'blocked');
+  const second = runPost(pass, { comments: [{ user: { login: 'mxgarage-vss-gpt[bot]' }, body: first.posted[0] }] });
+  assert.equal(second.posted.length, 1);
+  assert.equal(verdictOf(second.posted[0]), 'pass');
+});
+
+test('post：发评论前再核对一次 head——等检查期间 head 变了就不发（含错误评论）', () => {
+  const moved = { __seq: [prObj(), prObj(), prObj({ head: { sha: 'd'.repeat(40), ref: 'x', repo: { full_name: 'o/r' } } })] };
+  const r = runPost({ ...RESULT, verdict: 'pass', findings: [] }, { routes: { 'repos/o/r/pulls/7': moved } });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.posted.length, 0);
+  assert.match(r.stdout, /发布前核对：.*不发布过时的评审/);
+  const bad = runPost('not json', { routes: { 'repos/o/r/pulls/7': { __seq: [prObj(), prObj({ head: { sha: 'd'.repeat(40), ref: 'x', repo: { full_name: 'o/r' } } })] } } });
+  assert.equal(bad.posted.length, 0);
+});
+
+test('post：查询失败不当作全绿——check-runs 返回错误 JSON 并退出 1、结构不对 → 不发 pass', () => {
+  const pass = { ...RESULT, verdict: 'pass', findings: [] };
+  for (const checks of [{ __fail: { message: 'API rate limit exceeded', status: '403' } }, { message: 'Not Found' }, { total_count: 1 }]) {
+    const r = runPost(pass, { checks });
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(verdictOf(r.posted[0]), 'blocked', JSON.stringify(checks));
+    assert.match(r.posted[0], /查询失败、结构不对或不完整，无法核实/);
+    assert.doesNotMatch(r.posted[0], /均来自预期的工作流/);
+  }
+  // 运行来源查询失败、PR 元数据缺提交数 → 同样不放行
+  const runFail = runPost(pass, { routes: { 'repos/o/r/actions/runs/555': { __fail: { message: 'x' } } } });
+  assert.match(runFail.posted[0], /来源查询失败/);
+  assert.equal(verdictOf(runFail.posted[0]), 'blocked');
+  const noCount = runPost(pass, { routes: { 'repos/o/r/pulls/7': prObj({ commits: undefined }) } });
+  assert.equal(verdictOf(noCount.posted[0]), 'blocked');
+  assert.match(noCount.posted[0], /提交列表取不全/);
+});
+
+test('post：完整翻页取提交——第二页里的 Codex 实现者也能发现；提交数多于取到的 → 无法核实，不放行', () => {
+  const pass = { ...RESULT, verdict: 'pass', findings: [] };
+  const claude = Array.from({ length: 100 }, () => CLAUDE_COMMITS[0]);
+  const r = runPost(pass, { routes: {
+    'repos/o/r/pulls/7': prObj({ commits: 101 }),
+    'repos/o/r/pulls/7/commits?per_page=100&page=1': claude,
+    'repos/o/r/pulls/7/commits?per_page=100&page=2': [{ commit: { message: 'x\n\nExecutor: Codex（云端）' } }],
+  } });
+  assert.equal(verdictOf(r.posted[0]), 'blocked');
+  assert.match(r.posted[0], /同属 GPT 体系/);
+  const short = runPost(pass, { routes: { 'repos/o/r/pulls/7': prObj({ commits: 300 }) } });
+  assert.equal(verdictOf(short.posted[0]), 'blocked');
+  assert.match(short.posted[0], /提交列表取不全（PR 有 300 个提交）/);
+});
+
+test('post：必需检查绑定来源——同名但来自别的 App / 别的 head / 别的工作流，或 PR 改了该工作流，都不算通过', () => {
+  const pass = { ...RESULT, verdict: 'pass', findings: [] };
+  const cases = [
+    [{ checks: { total_count: 1, check_runs: [gatesRun({ app: { slug: 'some-other-app' } })] } }, /gates：只有来源不符的同名检查/],
+    [{ checks: { total_count: 1, check_runs: [gatesRun({ head_sha: 'e'.repeat(40) })] } }, /gates：只有来源不符的同名检查/],
+    [{ routes: { 'repos/o/r/actions/runs/555': { path: '.github/workflows/fake-gates.yml', head_sha: HEAD } } }, /gates：来自工作流 \.github\/workflows\/fake-gates\.yml，不是 \.github\/workflows\/ci\.yml/],
+    [{ routes: { 'repos/o/r/actions/runs/555': { path: '.github/workflows/ci.yml', head_sha: 'e'.repeat(40) } } }, /gates：运行 555 不在本 head 上/],
+    [{ checks: { total_count: 1, check_runs: [gatesRun({ details_url: 'https://example.com/x' })] } }, /找不到对应的 Actions 运行/],
+    [{ routes: { 'repos/o/r/pulls/7/files': [{ filename: '.github/workflows/ci.yml' }] } }, /gates：PR 改动了它所在的工作流 \.github\/workflows\/ci\.yml/],
+    [{ routes: { 'repos/o/r/pulls/7': prObj({ changed_files: 5 }) } }, /改动文件列表取不全/],
+  ];
+  for (const [opt, re] of cases) {
+    const r = runPost(pass, opt);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(verdictOf(r.posted[0]), 'blocked', String(re));
+    assert.match(r.posted[0], re);
+  }
+  // 工作流路径带 @ref 后缀也认
+  const withRef = runPost(pass, { routes: { 'repos/o/r/actions/runs/555': { path: '.github/workflows/ci.yml@refs/heads/feature/x', head_sha: HEAD } } });
+  assert.equal(verdictOf(withRef.posted[0]), 'pass');
 });
 
 // ---------- gpt-review.yml ----------
@@ -323,9 +413,9 @@ test('gpt-review.yml：第三方 action 全部固定完整 SHA；令牌最小化
   assert.ok(uses.length >= 5);
   for (const u of uses) assert.match(u, /@[0-9a-f]{40}$/, `未固定：${u}`);
   assert.match(yml, /^permissions: \{\}$/m);
-  const perms = (name) => job(name).match(/^ {4}permissions:\n((?: {6}.*\n)+)/m)[1].split('\n').filter(Boolean).map((l) => l.trim()).sort();
+  const perms = (name) => job(name).match(/^ {4}permissions:\n((?: {6}.*\n)+)/m)[1].split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#')).sort();
   assert.deepEqual(perms('review'), ['checks: read', 'contents: read', 'issues: read', 'pull-requests: read']);
-  assert.deepEqual(perms('post'), ['checks: read', 'contents: read', 'pull-requests: read']);
+  assert.deepEqual(perms('post'), ['actions: read', 'checks: read', 'contents: read', 'pull-requests: read']);
   assert.match(job('post'), /permission-pull-requests: write\n/);
   assert.equal((job('post').match(/permission-/g) || []).length, 1, 'App 令牌只申请一项权限');
   assert.match(job('post'), /uses: actions\/create-github-app-token@\w+ # v2\n {8}id: app\n {8}with:\n {10}app-id: \$\{\{ vars\.GPT_REVIEW_APP_ID \}\}\n {10}private-key: \$\{\{ secrets\.GPT_REVIEW_APP_KEY \}\}/);
@@ -347,7 +437,8 @@ test('gpt-review.yml：规则与脚本取自 main；Codex 在只读沙箱、可�
   assert.match(r, /safety-strategy: drop-sudo/);
   assert.doesNotMatch(r, /sandbox:|danger|unsafe/);
   assert.match(r, /allow-bots: \$\{\{ github\.event_name == 'workflow_dispatch' && 'true' \|\| 'false' \}\}/);
-  assert.match(job('post'), /ref: main\n {10}path: _rules\n {10}sparse-checkout: \|\n {12}scripts\/gpt-review\n {12}\.github\/gpt-review\n/);
+  assert.match(job('post'), /ref: \$\{\{ needs\.review\.outputs\.rules \}\}\n {10}path: _rules\n {10}sparse-checkout: \|\n {12}scripts\/gpt-review\n {12}\.github\/gpt-review\n/, '发布任务用评审时同一份规则');
+  assert.doesNotMatch(job('post'), /ref: main/);
   // 模型输出只经 env 传给脚本，不直接拼进 shell
   assert.match(job('post'), /RESULT: \$\{\{ needs\.review\.outputs\.result \}\}/);
   assert.doesNotMatch(job('post').replace(/^ {10}[A-Z_]+: .*$/gm, ''), /needs\.review\.outputs\.result/);

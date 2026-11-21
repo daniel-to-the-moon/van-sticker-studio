@@ -29,12 +29,15 @@ PR 新提交 / 转 Ready / 手动（gh workflow run gpt-review.yml --ref main -f
     3. 检出精确 head 到另一个目录，只作为被评审的数据
     4. Codex（openai/codex-action）以可信目录为工作目录、在只读沙箱里运行，按 schema 输出结论
   post（只用 App 令牌）
-    5. 核对 PR head 仍是被评审的提交（已变化就不发，新提交会触发新的评审）
-    6. 去重：本 App 对同一 head 已有有效评审就不再发（事件触发与 devloop 的手动触发可能落在同一 head 上）
+    （发布任务检出的规则与脚本固定为评审时解析出的 main SHA，main 在两个任务之间前进也不换规则）
+    5. 核对 PR head 仍是被评审的提交（已变化就不发，新提交会触发新的评审）；真正写评论前再核对一次
+    6. 去重：本 App 对同一 head 已有终局结论（pass / changes）就不再发；blocked / error 不算终局，阻塞解除后同一 head 可以重新发
     7. 校验输出符合 schema（不符合就发“评审输出无效”并让运行失败，不会显示成通过）
-    8. 机器核对 pass：main 上登记的必需检查（.github/gpt-review/required-checks.txt，现为 gates）在该 head 上
-       全部完成且成功（完整翻页；未完成时最多等 25 分钟；缺失、失败或查询截断都不算），且 PR 提交的 Executor
-       不属于 GPT 体系（GPT / dot / codex）。任一不满足，模型给的 pass 降为 blocked 并写明原因
+    8. 机器核对 pass：main 上登记的必需检查（.github/gpt-review/required-checks.txt，每行“检查名 App 工作流”，
+       现为 gates github-actions .github/workflows/ci.yml）必须：由该 App 发出、挂在本 head 上、所属 Actions 运行
+       是该工作流文件且就是本 head、已完成且成功，且 PR 没有改动该工作流文件（完整翻页；未完成时最多等 25 分钟）。
+       完整取到的提交里 Executor 不属于 GPT 体系（GPT / dot / codex）。任何查询失败、结构不对或取不全都算“无法核实”。
+       任一不满足，模型给的 pass 降为 blocked 并写明原因
     9. 渲染成评论发到 PR
 ```
 

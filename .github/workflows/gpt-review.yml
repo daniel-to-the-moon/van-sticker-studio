@@ -114,6 +114,8 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
+      # 核对必需检查所属的 Actions 运行（工作流文件与 head）
+      actions: read
     steps:
       # 评论用 App 的身份发（mxgarage-vss-gpt[bot]），不用共享的维护者账号，也不用 github-actions
       - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
@@ -125,9 +127,10 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           # 只申请发 PR 评论所需的权限
           permission-pull-requests: write
+      # 与评审任务用同一份规则（固定到评审时解析出的 main SHA），main 在两个任务之间前进也不会换规则
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: main
+          ref: ${{ needs.review.outputs.rules }}
           path: _rules
           sparse-checkout: |
             scripts/gpt-review
