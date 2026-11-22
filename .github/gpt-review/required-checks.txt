@@ -1,0 +1,3 @@
+# 评审给出 pass 前，必须在被评审的 head 上全部完成且成功的检查。每行：检查名  发出它的 App slug  所在工作流文件（# 为注释）。
+# 只认这个 App、这个工作流、这个 head 上的运行；PR 改动了该工作流文件时不算。清单取自 main，PR 不能改。
+gates github-actions .github/workflows/ci.yml

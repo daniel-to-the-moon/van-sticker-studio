@@ -37,6 +37,8 @@ function fakeGh(dir) {
     '  "pr list") case " $* " in *,files" "*) [ -z "${FAKE_PR_FILES_EXIT:-}" ] || exit "$FAKE_PR_FILES_EXIT" ;; esac; emit "${FAKE_PR_LIST:-[]}" ;;',
     '  "issue list") emit "${FAKE_ISSUE_LIST:-[]}" ;;',
     '  "issue comment") exit "${FAKE_COMMENT_EXIT:-0}" ;;',
+    '  "pr create") printf "%s\\n" "${FAKE_PR_URL-https://github.com/o/r/pull/77}" ;;',
+    '  "workflow run") exit "${FAKE_WF_EXIT:-0}" ;;',
     '  api\\ *)',
     '    if printf "%s\\n" "$@" | grep -qx POST; then exit "${FAKE_LOCK_POST_EXIT:-0}"; fi',
     '    if printf "%s\\n" "$@" | grep -qx DELETE; then exit 0; fi',
@@ -278,6 +280,27 @@ test('publish：核对通过 → 推送、开 Draft PR、释放 devloop-running 
   assert.equal(d.run({ EVENT: 'workflow_dispatch' }).status, 0);
   assert.match(d.gh.log(), /^issue edit 4 -R o\/r --remove-label needs-user$/m);
   assert.doesNotMatch(d.gh.log(), /hold/);
+});
+
+test('publish：开出 PR 后主动触发 CI 与 GPT 复核（GITHUB_TOKEN 开的 PR 不会触发 pull_request）；触发失败只留言、不影响 PR', () => {
+  const t = publishSetup();
+  const r = t.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(t.gh.log(), /^workflow run ci\.yml -R o\/r --ref feature\/4-claude-devloop$/m);
+  assert.match(t.gh.log(), /^workflow run gpt-review\.yml -R o\/r --ref main -f pr=77$/m);
+  assert.doesNotMatch(t.gh.log(), /^issue comment 77/m);
+  const f = publishSetup();
+  const rf = f.run({ FAKE_WF_EXIT: '1' });
+  assert.equal(rf.status, 0, rf.stderr);
+  assert.equal(f.ref(`refs/heads/${BRANCH}`), f.newSha);
+  assert.match(f.gh.log(), /^issue comment 77 -R o\/r --body-file \S+dispatch\.md$/m);
+  const why = readFileSync(f.gh.log().match(/--body-file (\S+dispatch\.md)/)[1], 'utf8');
+  assert.match(why, /gh workflow run ci\.yml --ref feature\/4-claude-devloop/);
+  assert.match(why, /gh workflow run gpt-review\.yml --ref main -f pr=77/);
+  // 取不到 PR 编号：不触发评审、也不往不存在的 PR 留言
+  const u = publishSetup();
+  assert.equal(u.run({ FAKE_PR_URL: '' }).status, 0);
+  assert.doesNotMatch(u.gh.log(), /gpt-review\.yml|^issue comment 77/m);
 });
 
 test('publish：只释放自己持有的锁（核对不通过时也释放）', () => {

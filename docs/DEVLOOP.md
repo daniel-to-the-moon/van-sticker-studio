@@ -13,6 +13,7 @@
      preflight（issues: write）：确定准确基线（完整 SHA）→ 取得全局锁 devloop-lock → 核对占用、冻结范围与冲突 → 在 issue 发 claim；打 devloop-running
      work（只读令牌）：检出该基线 → Claude 改代码 + 测试 → 跑门禁 → 本地提交 → 上传前核对 → git bundle（不发布时保全为过滤后的 recovery.bundle）
      publish（写权限）：发布前二次核对（见第四节）→ 全部通过才推到 feature/<N>-claude-devloop → 开 Draft PR（Closes #N）→ 释放锁
+               → 触发 ci.yml 与 gpt-review.yml（GITHUB_TOKEN 开的 PR 不会自动触发它们；触发失败在 PR 上留言写明手动命令）
         │
   评审与合并：照 AGENTS §8/§13，由非实现者独立评审；评审通过后转 Ready；dot 决定、非实现者合并
   评审要求修改：devloop 不在 PR 上自动修复。由维护者决定：交给其他执行者在该 PR 上修订（按 §10 接手），
@@ -21,7 +22,7 @@
 
 **只做实现，不做评审触发的修复。** 所有 agent 共用维护者 GitHub 账号，靠“所有者账号 + 执行者：GPT 前缀”认不出真正的评审者，也证明不了评审针对的是哪个提交（#119 GPT 复核）。评审方有可核验的独立身份（例如 #115 的 GitHub App 身份）后，再另行接入修复。
 
-**未接入**：审核方 watch（本机或云端 Codex 自动审核、签名标记、自动合并）。评审按现行流程进行；Codex 由 PR 上的 `@codex review` 触发，GPT（dot）不会被 GitHub 评论自动唤醒（AGENTS §11）。
+**评审**：CI 里的 GPT 独立复核（`docs/process/gpt-ci-review.md`，默认停用）在 devloop 开出 PR 后自动触发，以 `mxgarage-vss-gpt[bot]` 身份发结论；Codex 由 PR 上的 `@codex review` 触发。未接入：自动合并。
 
 ## 二、维护者配置（保留项，agent 不代办）
 
@@ -99,7 +100,7 @@
 
 - **额度**：订阅令牌与维护者在 claude.ai、Claude Code 的日常使用共用同一份额度（五小时会话上限 + 每周上限）。额度用完时云端 Claude 会很快失败并加 `needs-user`，等额度重置后手动重跑。全局锁也意味着同一时间只消耗一份。
 - **令牌**：`work` 任务执行仓库代码且持有模型令牌；依赖被投毒时可能泄露该令牌（拿不到写仓库令牌）。可随时在本机重新 `claude setup-token` 并覆盖 Secret（旧令牌是否立即失效以 Anthropic 当前行为为准，待核实）。
-- **最低权限**：`work` 只有 `contents / issues / pull-requests / actions: read`，没有 `id-token`——传入 `github_token` 时 claude-code-action 直接使用它，不做 OIDC 交换（固定版本 `acfe799` 的 `src/github/token.ts` 中 `setupGitHubToken` 遇到 `OVERRIDE_GITHUB_TOKEN` 直接返回）。`preflight` 只有 `issues: write`，`publish` 有 `contents / pull-requests / issues: write`，二者都只运行 main 上的脚本。
+- **最低权限**：`work` 只有 `contents / issues / pull-requests / actions: read`，没有 `id-token`——传入 `github_token` 时 claude-code-action 直接使用它，不做 OIDC 交换（固定版本 `acfe799` 的 `src/github/token.ts` 中 `setupGitHubToken` 遇到 `OVERRIDE_GITHUB_TOKEN` 直接返回）。`preflight` 只有 `issues: write`，`publish` 有 `contents / pull-requests / issues: write` 与 `actions: write`（只用于开出 PR 后触发 CI 与 GPT 复核），二者都只运行 main 上的脚本。
 - **依赖固定**：工作流里的第三方 action 都固定到完整提交 SHA（注释写对应标签）；升级时改 SHA 并重新评审。
 - **共享账号**：所有 agent 目前共用维护者 GitHub 账号，谁都能打 `devloop` 标签、设变量；“打标签 = 维护者授权”靠约定，不是技术约束。
 - **卡住的锁**：运行被手动取消时 publish 不运行，`devloop-lock` 可能残留，之后所有实现都会停下并在说明里写出持有者。确认那次运行已结束后：`gh label delete devloop-lock -R daniel-to-the-moon/van-sticker-studio --yes`，并去掉对应 issue 的 `devloop-running`。

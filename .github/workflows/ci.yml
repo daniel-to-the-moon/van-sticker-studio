@@ -1,7 +1,7 @@
 # CI：门禁工作流（草稿，未推，等过目）
 #
 # 门禁与 AGENTS.md 一致：lint、test、tsc、build 四项全绿才可合并。
-# 触发：PR + 推 main（合并后主分支门禁再跑一次）。
+# 触发：PR + 推 main（合并后主分支门禁再跑一次）+ 手动 / devloop 触发。
 # 分支保护（要求本工作流全绿才能合并）需维护者在仓库 Settings 里开，agent 开不了。
 # 不在本次草稿内、后续 infra 项：PR 预览部署、视觉 harness、资产体积预算监控。
 
@@ -11,6 +11,9 @@ on:
   pull_request:
   push:
     branches: [main]
+  # devloop 用 GITHUB_TOKEN 开的 PR 不会触发 pull_request 事件；它开出 PR 后用 workflow_dispatch 在该分支上跑门禁（#120）。
+  # 检查结果挂在分支 head 提交上，PR 页面照常显示。
+  workflow_dispatch:
 
 jobs:
   gates:

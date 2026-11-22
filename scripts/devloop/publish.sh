@@ -85,7 +85,23 @@ v=$(scope_violations "$START" "$main" "$new" "$scope")
 git push -q origin "$new:refs/heads/$BRANCH"
 title=$(head -c 200 "$OUT/title.txt" 2>/dev/null || true)
 # 自动候选默认 Draft：独立评审与验证通过后再由评审方转 Ready（AGENTS §13 合并要求非 Draft）
-gh pr create -R "$REPO" --draft --base main --head "$BRANCH" --title "${title:-devloop：issue #$N}" --body-file "$OUT/body.md"
+url=$(gh pr create -R "$REPO" --draft --base main --head "$BRANCH" --title "${title:-devloop：issue #$N}" --body-file "$OUT/body.md")
+echo "$url"
+# 用 GITHUB_TOKEN 开的 PR 不会触发 pull_request 事件：主动在分支上跑 CI 门禁，并请 CI 里的 GPT 独立复核（#120）。
+# 触发失败不影响已开出的 PR，只在 PR 上留言请维护者手动触发。
+pr_num=${url##*/}
+case "$pr_num" in '' | *[!0-9]*) pr_num="" ;; esac
+missed=""
+gh workflow run ci.yml -R "$REPO" --ref "$BRANCH" || missed="$missed \`gh workflow run ci.yml --ref $BRANCH\`"
+if [ -n "$pr_num" ]; then
+  gh workflow run gpt-review.yml -R "$REPO" --ref main -f pr="$pr_num" || missed="$missed \`gh workflow run gpt-review.yml --ref main -f pr=$pr_num\`"
+else
+  missed="$missed （取不到 PR 编号，GPT 复核未触发）"
+fi
+if [ -n "$missed" ] && [ -n "$pr_num" ]; then
+  printf '执行者：Claude（devloop 云端）\n\n开出 PR 后自动触发失败，请维护者手动运行：%s\n' "$missed" > "$OUT/dispatch.md"
+  gh issue comment "$pr_num" -R "$REPO" --body-file "$OUT/dispatch.md" || true
+fi
 if [ "${EVENT:-}" = "workflow_dispatch" ]; then gh issue edit "$N" -R "$REPO" --remove-label needs-user || true; fi
 release
 echo "published=$new"
