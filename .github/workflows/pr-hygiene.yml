@@ -1,0 +1,25 @@
+# PR 格式检查（AGENTS §6）：第一行署名、关联 Issue；非 Draft 还要五件套小节。
+# 维护者可给 PR 加 hygiene-exempt 标签豁免。只读，不用 secret。
+
+name: pr-hygiene
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node tools/pr-hygiene.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+        shell: bash -o pipefail {0}

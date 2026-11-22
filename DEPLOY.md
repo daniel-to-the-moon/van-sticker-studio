@@ -1,6 +1,6 @@
 # MXGARAGE Wrap Studio 部署准备文档（DEPLOY）
 
-> 本文件受constitution.md和AGENTS§13–16的决策表/发布护栏约束。日常生产决定按生效委托由dot作出；账号、凭据、预算、私有配置及安全权限仍归用户。技术命令不是操作许可，本次spec迁移不执行生产或配置。
+> 发版、自动上线与回滚以 [docs/releases/README.md](docs/releases/README.md) 和 AGENTS §13 为准；本文其余部分是构建、密钥与排障的技术说明，与之冲突处以前者为准。账号、凭据、预算、私有配置及安全权限归维护者。
 > 适用项目：`van-sticker-studio`（MXGARAGE 拉花网页应用）
 > 关联任务单：P0「网页应用端到端跑通：配通 AI 生图并部署上线」
 > 编写口径：README 的 `Server AI configuration` 与 `Develop and verify` 两节、`package.json` scripts、`vite.config.ts`、`.dev.vars.example` / `.env.example`、`.gitignore`。
