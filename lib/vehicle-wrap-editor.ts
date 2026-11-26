@@ -10,6 +10,12 @@ import { PALETTE_PARTITION, type VehiclePalette } from './vehicle-palettes.ts';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bakeWrapAttributes } from './vehicle-wrap-adapter.ts';
 import {
+  fitDecalOnFilm,
+  measureCoverage,
+  type ChartCoverage,
+  type ChartTriangle,
+} from './wrap-default-fit.ts';
+import {
   envelopeBody,
   type PanelFeedback,
   type VehicleModelProfile,
@@ -108,6 +114,7 @@ export class VehicleWrapEditor {
     y: number;
     start: DecalPlacement;
     entryAdjusted: boolean;
+    driverAdjusted: boolean;
     hit: SurfaceHit | null;
     target: Element | null;
   } | null = null;
@@ -116,6 +123,10 @@ export class VehicleWrapEditor {
   private profileFeedback: PanelFeedback[] = [];
   private entryDoorClear = false;
   private entryAdjusted = false;
+  /** Closed-pose eligible film on the driver face, measured once after binding. */
+  private driverCoverage: ChartCoverage | null = null;
+  private driverFits = false;
+  private driverAdjusted = false;
   private uniforms: { [key: string]: { value: unknown } };
   constructor(options: {
     root: THREE.Group;
@@ -189,6 +200,7 @@ export class VehicleWrapEditor {
       this.cacheEntryDoor(meshes);
       this.bindLegacySurfaces(meshes, transitions, materials);
     }
+    this.driverCoverage = this.measureDriverCoverage();
     const projectedDesign = !options.profile;
     const designVarying = projectedDesign ? 'varying vec2 vDesignProjection;' : '';
     const designAttribute = projectedDesign ? 'attribute vec2 aDesignProjection;' : '';
@@ -352,6 +364,7 @@ export class VehicleWrapEditor {
     if (image) {
       this.aspect = image.naturalWidth / image.naturalHeight;
       if (!this.entryAdjusted) this.applyEntryDefault();
+      if (!this.driverAdjusted) this.applyDriverDefault();
       this.texture = new THREE.Texture(image);
       this.texture.colorSpace = THREE.SRGBColorSpace;
       this.texture.flipY = false;
@@ -361,6 +374,8 @@ export class VehicleWrapEditor {
       this.placements = this.defaults();
       this.entryAdjusted = false;
       this.entryDoorClear = false;
+      this.driverAdjusted = false;
+      this.driverFits = false;
       this.selected = false;
       this.hovered = false;
       this.locked = false;
@@ -403,6 +418,8 @@ export class VehicleWrapEditor {
       entryDoorClear: this.entryDoorClear,
       entryAdjusted: this.entryAdjusted,
       entryDoorSpan: this.entryDoorSpan ? { ...this.entryDoorSpan } : null,
+      driverFits: this.driverFits,
+      driverAdjusted: this.driverAdjusted,
     };
   }
   private sync() {
@@ -601,6 +618,7 @@ export class VehicleWrapEditor {
       y: e.clientY,
       start: { ...this.placements[this.active] },
       entryAdjusted: this.entryAdjusted,
+      driverAdjusted: this.driverAdjusted,
       hit: startHit,
       target: e.target instanceof Element ? e.target : null,
     };
@@ -646,11 +664,8 @@ export class VehicleWrapEditor {
     if (revert) {
       this.placements[this.active] = drag.start;
       this.entryAdjusted = drag.entryAdjusted;
-    } else if (
-      this.active === 0 &&
-      !this.sameDecal(this.placements[0], drag.start)
-    )
-      this.entryAdjusted = true;
+      this.driverAdjusted = drag.driverAdjusted;
+    } else this.noteHandEdit(this.active, drag.start);
     if (drag.target?.hasPointerCapture(drag.id))
       drag.target.releasePointerCapture(drag.id);
     this.drag = null;
@@ -667,7 +682,7 @@ export class VehicleWrapEditor {
     const before = { ...this.placements[active] };
     this.placements[active].scale *= factor;
     this.sync();
-    this.noteEntryEdit(active, before);
+    this.noteHandEdit(active, before);
     this.refreshBoundary();
   }
   nudge(dx: number, dy: number) {
@@ -677,16 +692,18 @@ export class VehicleWrapEditor {
     this.placements[active].center += dx;
     this.placements[active].height += dy;
     this.sync();
-    this.noteEntryEdit(active, before);
+    this.noteHandEdit(active, before);
     this.refreshBoundary();
   }
   reset() {
     if (!this.enabled || !this.texture || this.locked) return;
     this.entryAdjusted = false;
-    const legacy = this.defaults();
+    this.driverAdjusted = false;
     const entry = this.entryDefault(this.aspect);
     this.entryDoorClear = entry.clear;
-    this.placements = [entry.placement, legacy[1]];
+    const driver = this.driverDefault(this.aspect);
+    this.driverFits = driver.fits;
+    this.placements = [entry.placement, driver.placement];
     this.sync();
     this.refreshBoundary();
   }
@@ -695,9 +712,11 @@ export class VehicleWrapEditor {
       a.center === b.center && a.height === b.height && a.scale === b.scale
     );
   }
-  private noteEntryEdit(active: number, before: DecalPlacement) {
-    if (active === 0 && !this.sameDecal(this.placements[0], before))
-      this.entryAdjusted = true;
+  /** A real hand edit keeps that side's placement through later image changes. */
+  private noteHandEdit(active: number, before: DecalPlacement) {
+    if (this.sameDecal(this.placements[active], before)) return;
+    if (active === 0) this.entryAdjusted = true;
+    else if (active === 1) this.driverAdjusted = true;
   }
   getProfileFeedback(): PanelFeedback[] {
     return this.profileFeedback.map((item) => ({ ...item }));
@@ -826,6 +845,54 @@ export class VehicleWrapEditor {
       entry:
         onSide && pz < 0 && Math.abs(wrappedDelta(s, sideS, period)) <= 1e-6,
     };
+  }
+  private measureDriverCoverage(): ChartCoverage | null {
+    const b = this.body;
+    const face = { s0: b.length + b.width, s1: 2 * b.length + b.width };
+    const triangles: ChartTriangle[] = [];
+    for (const mesh of this.surfaces) {
+      const coords = mesh.geometry.getAttribute('aWrapCoord');
+      const eligible = mesh.geometry.getAttribute('aWrapEligible');
+      if (!coords || !eligible) continue;
+      const index = mesh.geometry.index;
+      const at = (k: number) => (index ? index.getX(k) : k);
+      const count = index ? index.count : coords.count;
+      for (let k = 0; k + 2 < count; k += 3) {
+        const i0 = at(k),
+          i1 = at(k + 1),
+          i2 = at(k + 2);
+        if (eligible.getX(i0) < 0.5) continue;
+        triangles.push([
+          coords.getX(i0),
+          coords.getY(i0),
+          coords.getX(i1),
+          coords.getY(i1),
+          coords.getX(i2),
+          coords.getY(i2),
+        ]);
+      }
+    }
+    if (!triangles.length) return null;
+    return measureCoverage(triangles, circumference(b), {
+      ...face,
+      h0: 0,
+      h1: b.height,
+    });
+  }
+  /** Same driver default for first apply, untouched image change and reset (#68). */
+  private driverDefault(aspect: number) {
+    const legacy = this.defaults()[1];
+    if (!this.driverCoverage) return { placement: legacy, fits: false };
+    const b = this.body;
+    return fitDecalOnFilm(legacy, aspect, b, this.driverCoverage, {
+      s0: b.length + b.width,
+      s1: 2 * b.length + b.width,
+    });
+  }
+  private applyDriverDefault() {
+    const driver = this.driverDefault(this.aspect);
+    this.driverFits = driver.fits;
+    this.placements[1] = driver.placement;
   }
   private applyEntryDefault() {
     const entry = this.entryDefault(this.aspect);

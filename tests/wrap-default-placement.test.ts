@@ -33,6 +33,8 @@ const SAMPLES = ['alpine-club', 'coast-club', 'night-route', 'sun-chaser'] as co
 
 type DoorSpan = { s0: number; s1: number; h0: number; h1: number };
 type EditorState = ReturnType<VehicleWrapEditor['getState']> & {
+  driverFits?: boolean;
+  driverAdjusted?: boolean;
   entryDoorClear?: boolean;
   entryAdjusted?: boolean;
   entryDoorSpan?: DoorSpan | null;
@@ -301,7 +303,10 @@ void describe('entry-side default placement avoids the closed entry door', { con
         );
         near(entry.height, 1.28);
         near(entry.scale, rearWidth / BASE_WIDTH_M);
-        assert.deepEqual(driver, constrainDecal(legacyPlacement(1), png.aspect, BODY));
+        // #68: the driver side now has its own on-film default; see below.
+        assert.equal(next.driverFits, true, name);
+        assert.equal(next.driverAdjusted, false, name);
+        assert.deepEqual(driver, constrainDecal(driver, png.aspect, BODY));
         assert.notDeepEqual(
           entry,
           constrainDecal(legacyPlacement(0), png.aspect, BODY),
@@ -355,10 +360,8 @@ void describe('entry-side default placement avoids the closed entry door', { con
       assert.equal(afterReset.entryDoorClear, true);
       assert.deepEqual(afterReset.entryDoorSpan, before.entryDoorSpan);
       assert.deepEqual(afterReset.placements[0], before.placements[0]);
-      assert.deepEqual(
-        afterReset.placements[1],
-        constrainDecal(legacyPlacement(1), png.aspect, BODY),
-      );
+      // #68: reset reuses the same driver default as the first apply.
+      assert.deepEqual(afterReset.placements[1], before.placements[1]);
       assert.equal(
         rectHitsDoor(afterReset.placements[0], png.aspect, before.entryDoorSpan!),
         false,
@@ -563,6 +566,185 @@ void describe('entry-side default placement avoids the closed entry door', { con
       assert.equal(reset.entryAdjusted, false);
       assert.equal(reset.entryDoorClear, false);
       assert.deepEqual(reset.placements, before);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+/** Eligible chart triangles exactly as the editor baked them onto the meshes. */
+function eligibleChart(root: Group) {
+  const tris: number[][] = [];
+  root.traverse((o) => {
+    if (!(o instanceof Mesh)) return;
+    const coords = o.geometry.getAttribute('aWrapCoord');
+    const eligible = o.geometry.getAttribute('aWrapEligible');
+    if (!coords || !eligible) return;
+    for (let i = 0; i + 2 < coords.count; i += 3)
+      if (eligible.getX(i) >= 0.5)
+        tris.push([0, 1, 2].flatMap((k) => [coords.getX(i + k), coords.getY(i + k)]));
+  });
+  return tris;
+}
+
+/**
+ * Independent of the editor's lattice: every 5 cm sample of the image,
+ * edges included, must land inside an eligible triangle.
+ */
+function uncoveredSamples(
+  tris: number[][],
+  placement: DecalPlacement,
+  aspect: number,
+) {
+  const period = circumference(BODY);
+  const halfW = (BASE_WIDTH_M * placement.scale) / 2;
+  const halfH = halfW / aspect;
+  const s0 = placement.center - halfW,
+    s1 = placement.center + halfW,
+    h0 = placement.height - halfH,
+    h1 = placement.height + halfH;
+  const nearby = tris
+    .map((t) => {
+      const ss = [t[0], t[2], t[4]];
+      const shift =
+        Math.round((placement.center - (Math.min(...ss) + Math.max(...ss)) / 2) / period) *
+        period;
+      return t.map((v, i) => (i % 2 ? v : v + shift));
+    })
+    .filter(
+      (t) =>
+        Math.max(t[0], t[2], t[4]) - Math.min(t[0], t[2], t[4]) < period / 2 &&
+        Math.max(t[0], t[2], t[4]) >= s0 &&
+        Math.min(t[0], t[2], t[4]) <= s1 &&
+        Math.max(t[1], t[3], t[5]) >= h0 &&
+        Math.min(t[1], t[3], t[5]) <= h1,
+    );
+  const sideOf = (px: number, py: number, ax: number, ay: number, bx: number, by: number) =>
+    (px - bx) * (ay - by) - (ax - bx) * (py - by);
+  const onFilm = (x: number, y: number) =>
+    nearby.some((t) => {
+      const d1 = sideOf(x, y, t[0], t[1], t[2], t[3]);
+      const d2 = sideOf(x, y, t[2], t[3], t[4], t[5]);
+      const d3 = sideOf(x, y, t[4], t[5], t[0], t[1]);
+      const e = 1e-9;
+      return !((d1 < -e || d2 < -e || d3 < -e) && (d1 > e || d2 > e || d3 > e));
+    });
+  const misses: { s: number; h: number }[] = [];
+  const cols = Math.ceil((s1 - s0) / 0.05),
+    rows = Math.ceil((h1 - h0) / 0.05);
+  for (let j = 0; j <= rows; j++)
+    for (let i = 0; i <= cols; i++) {
+      const x = s0 + ((s1 - s0) * i) / cols,
+        y = h0 + ((h1 - h0) * j) / rows;
+      if (!onFilm(x, y)) misses.push({ s: x, h: y });
+    }
+  return misses;
+}
+
+void describe('#68 driver-side default keeps the whole image on wrap film', { concurrency: false }, () => {
+  void test('the legacy driver default is cut on the current vehicle (reproduction)', async () => {
+    const scene = await loadVehicle();
+    const { cleanup } = mount(scene);
+    try {
+      const tris = eligibleChart(scene);
+      const png = pngSize('alpine-club');
+      const legacy = constrainDecal(legacyPlacement(1), png.aspect, BODY);
+      const misses = uncoveredSamples(tris, legacy, png.aspect);
+      assert.ok(misses.length > 0, 'ALPINE at the legacy driver default should cross off the film');
+      const top = legacy.height + (BASE_WIDTH_M * legacy.scale) / png.aspect / 2;
+      assert.ok(
+        misses.some((m) => m.h > top - 0.4),
+        'the cut is in the upper part of the image (the mountain tops)',
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  void test('first apply, untouched image change and reset place all four samples fully on film', async () => {
+    const scene = await loadVehicle();
+    const { editor, cleanup } = mount(scene);
+    try {
+      const tris = eligibleChart(scene);
+      const face = { s0: BODY.length + BODY.width, s1: 2 * BODY.length + BODY.width };
+      const first: Record<string, DecalPlacement> = {};
+      const results = [];
+      for (const name of SAMPLES) {
+        const png = pngSize(name);
+        editor.setImage(image(png.width, png.height));
+        const state = observed(editor);
+        const driver = state.placements[1];
+        assert.equal(state.driverFits, true, name);
+        assert.equal(state.driverAdjusted, false, name);
+        assert.deepEqual(uncoveredSamples(tris, driver, png.aspect), [], name);
+        const halfW = (BASE_WIDTH_M * driver.scale) / 2;
+        assert.ok(
+          driver.center - halfW >= face.s0 && driver.center + halfW <= face.s1,
+          `${name} stays on the driver face`,
+        );
+        assert.ok(driver.scale >= MIN_SCALE && driver.scale <= 1, name);
+        // Entry side is #43/#35's contract and must not move.
+        assert.equal(state.entryDoorClear, true, name);
+        first[name] = { ...driver };
+        results.push({ name, ...driver });
+      }
+      // Image change back and forth reuses the same default, not the previous image's.
+      for (const name of [...SAMPLES].reverse()) {
+        const png = pngSize(name);
+        editor.setImage(image(png.width, png.height));
+        assert.deepEqual(observed(editor).placements[1], first[name], name);
+      }
+      const png = pngSize('alpine-club');
+      editor.setImage(image(png.width, png.height));
+      editor.reset();
+      assert.deepEqual(observed(editor).placements[1], first['alpine-club']);
+      console.log(`ISSUE68 ${JSON.stringify(results)}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  void test('a hand-adjusted driver side survives image change and reset clears it', async () => {
+    const scene = await loadVehicle();
+    const png = pngSize('alpine-club');
+    const camera = new OrthographicCamera(-4, 4, 3, -3, 0.1, 100);
+    const { editor: probe, cleanup: done } = mount(scene);
+    probe.setImage(image(png.width, png.height));
+    const fitted = observed(probe).placements[1];
+    done();
+    // Aim at the fitted driver decal so a click selects that side.
+    const x = BODY.xMin + BODY.length / 2 + (fitted.center - BODY.length - BODY.width - BODY.length / 2);
+    camera.position.set(x, fitted.height, 8);
+    camera.lookAt(x, fitted.height, 0);
+    camera.updateMatrixWorld(true);
+    const scene2 = await loadVehicle();
+    const { editor, canvas, events, cleanup } = mount(scene2, camera);
+    try {
+      editor.setImage(image(png.width, png.height));
+      assert.deepEqual(observed(editor).placements[1], fitted);
+      canvas.dispatchEvent(pointer('pointerdown'));
+      events.dispatchEvent(pointer('pointerup'));
+      assert.equal(observed(editor).active, 1, 'the click selected the driver side');
+      assert.equal(observed(editor).driverAdjusted, false, 'a plain click is not an edit');
+      editor.nudge(0.1, 0);
+      const moved = observed(editor);
+      assert.equal(moved.driverAdjusted, true);
+      assert.equal(moved.entryAdjusted, false);
+      const coast = pngSize('coast-club');
+      editor.setImage(image(coast.width, coast.height));
+      assert.deepEqual(
+        observed(editor).placements[1],
+        constrainDecal(moved.placements[1], coast.aspect, BODY),
+        'hand edits are kept, only re-constrained to the new aspect',
+      );
+      editor.reset();
+      const reset = observed(editor);
+      assert.equal(reset.driverAdjusted, false);
+      assert.equal(reset.driverFits, true);
+      assert.deepEqual(
+        uncoveredSamples(eligibleChart(scene2), reset.placements[1], coast.aspect),
+        [],
+      );
     } finally {
       cleanup();
     }
