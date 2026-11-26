@@ -46,6 +46,8 @@ interface Props {
   environment: 'camp' | 'studio';
   onPick: (id: string) => void;
   onReady: (meta: Metadata) => void;
+  onDesignReady?: () => void;
+  onDesignError?: () => void;
   onWrapEdit?: (state: WrapEditState) => void;
 }
 const HOVER_KEYS: Record<string, StringKey> = {
@@ -78,11 +80,17 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
     const [ready, setReady] = useState(false);
     const [error, setError] = useState('');
     useEffect(() => {
-      if (props.design)
-        engine.current
-          ?.setDesign(props.design)
-          .catch(() => setError('贴画预览暂不可用，请重新打开预览'));
-    }, [props.design]);
+      if (!ready || !engine.current) return;
+      let active = true;
+      void engine.current.setDesign(props.design ?? null).then(() => {
+        if (active) latest.current.onDesignReady?.();
+      }).catch(() => {
+        if (!active) return;
+        latest.current.onDesignError?.();
+        setError('贴画预览暂不可用，请重新打开预览');
+      });
+      return () => { active = false; };
+    }, [props.design, ready]);
     const [wrapEdit, setWrapEdit] = useState<WrapEditState | null>(null);
     const menuAction = useRef<HTMLButtonElement>(null);
     useEffect(() => {
@@ -146,9 +154,6 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
             onReady: (meta) => {
               if (!active) return;
               setReady(true);
-              engine.current
-                ?.setDesign(latest.current.design ?? null)
-                .catch(() => setError('贴画预览暂不可用，请重新打开预览'));
               engine.current?.setParts(latest.current.parts);
               engine.current?.setWipers(latest.current.wipers);
               engine.current?.setEnvironment(latest.current.environment);
@@ -163,8 +168,11 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
                 );
               latest.current.onReady(meta);
             },
-            onError: (code) =>
-              active && setError(t(latest.current.lang, ERROR_KEYS[code])),
+            onError: (code) => {
+              if (!active) return;
+              latest.current.onDesignError?.();
+              setError(t(latest.current.lang, ERROR_KEYS[code]));
+            },
             onPick: (id) => latest.current.onPick(id),
             onHover: (id, x, y) => active && setHover(id ? { id, x, y } : null),
             onWrapEdit: (state) => {
@@ -179,6 +187,7 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
           engine.current.setPalette(latest.current.palette);
           engine.current.setPresentation(latest.current.presentation);
         } catch {
+          latest.current.onDesignError?.();
           setError(t(latest.current.lang, 'scene.webglUnsupported'));
         }
       });

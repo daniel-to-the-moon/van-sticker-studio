@@ -12,7 +12,7 @@ import {
   ArrowLeft,
   MousePointer2,
   Hand,
-  PenLine,
+  Highlighter,
   Palette,
   Type,
   ImagePlus,
@@ -32,6 +32,8 @@ import {
   RotateCcw,
   Plus,
   Minus,
+  PlusCircle,
+  ChevronRight,
 } from 'lucide-react';
 import VehicleScene, { type VehicleHandle } from './VehicleScene';
 import {
@@ -40,7 +42,10 @@ import {
   commit,
   editLayer,
   emptyProject,
+  DEFAULT_WRAP_BACKGROUND,
+  FRONT_ART_BOX,
   history,
+  isSideFace,
   newLayer,
   parseProject,
   pathData,
@@ -56,13 +61,20 @@ import {
   type History,
   type Point,
   type Project,
-  type Side,
+  type Face,
+  WRAP_FACES,
 } from '@/lib/free-wrap';
 import './wrap-design.css';
 import guides from '@/lib/wrap-guides.json';
 import type legacyGuides from '@/lib/wrap-legacy-guides.json';
 import { DraftPersistence, type DraftStatus } from '@/lib/draft-persistence';
 const STORE = 'mxgarage-free-wrap-v1';
+const faceLabels: Record<Face, string> = {
+  entry: '入口侧',
+  driver: '另一侧',
+  front: '车头',
+  rear: '车尾',
+};
 let legacyGuideLoad: Promise<typeof legacyGuides> | undefined;
 type Tool = 'select' | 'region' | 'stroke' | 'nodes' | 'pan';
 type Gesture = {
@@ -121,20 +133,23 @@ export default function WrapDesignStudio() {
   const [hydrated, setHydrated] = useState(false),
     [saveStatus, setSaveStatus] = useState<DraftStatus>('loading');
   const draft = useRef<DraftPersistence | null>(null);
-  const [side, setSide] = useState<Side>('entry'),
+  const [side, setSide] = useState<Face>('entry'),
     [selected, setSelected] = useState('');
   const [tool, setTool] = useState<Tool>('select'),
     [mode, setMode] = useState<'edit' | 'preview'>('edit');
   const [preview, setPreview] = useState<Project | null>(null),
     [line, setLine] = useState<Point[]>([]);
-  const [color, setColor] = useState('#8aafa1'),
-    [linked, setDefaultLinked] = useState(true);
+  const [color, setColor] = useState('#2d5e56'),
+    [linked, setDefaultLinked] = useState(false);
   const [region, setRegion] = useState<'above' | 'below' | 'closed'>('below');
-  const [dashed, setDashed] = useState(true),
+  const [dashed, setDashed] = useState(false),
     [zoom, setZoom] = useState(1),
     [pan, setPan] = useState({ x: 0, y: 0 });
   const [message, setMessage] = useState(''),
     [layerPanel, setLayerPanel] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [paperSnapshot, setPaperSnapshot] = useState('');
+  const [previewReady, setPreviewReady] = useState(false);
   const [parts, setParts] = useState<Record<string, boolean>>({});
   const board = useRef<SVGSVGElement>(null),
     scene = useRef<VehicleHandle>(null);
@@ -152,7 +167,10 @@ export default function WrapDesignStudio() {
     layer = project.layers.find((l) => l.id === selected),
     art = layer?.[side];
   const legacy = project.version === 1;
-  const sideGuide = legacy ? legacyGuide?.[side] : guides[side];
+  const legacySide = legacy && isSideFace(side);
+  const sideGuide = legacySide ? legacyGuide?.[side] : guides[side];
+  const customBackground = project.background.toLowerCase() !== DEFAULT_WRAP_BACKGROUND;
+  const faceLayers = project.layers.filter((item) => item[side]);
   useEffect(() => {
     if (!legacy) return;
     let active = true;
@@ -233,10 +251,31 @@ export default function WrapDesignStudio() {
     setPreview(null);
     setLine([]);
   }
-  function chooseSide(next: Side) {
+  function chooseSide(next: Face) {
     cancel();
     setSide(next);
-    setTool('select');
+    setSelected('');
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    if (mode === 'preview') scene.current?.setView(next);
+  }
+  function togglePreview() {
+    cancel();
+    if (mode === 'preview') {
+      setMode('edit');
+      setPaperSnapshot('');
+      return;
+    }
+    if (board.current) {
+      const snapshot = board.current.cloneNode(true) as SVGSVGElement;
+      const { width, height } = board.current.getBoundingClientRect();
+      snapshot.setAttribute('width', String(width));
+      snapshot.setAttribute('height', String(height));
+      setPaperSnapshot('data:image/svg+xml;charset=utf-8,' +
+        encodeURIComponent(new XMLSerializer().serializeToString(snapshot)));
+    }
+    setPreviewReady(false);
+    setMode('preview');
   }
   function chooseTool(next: Tool) {
     cancel();
@@ -254,10 +293,12 @@ export default function WrapDesignStudio() {
   function insert(kind: Art['kind'], patch: Partial<Art> = {}) {
     try {
       let item = newLayer(kind, freshId());
-      item = { ...item, entry: { ...item.entry!, color, ...patch } };
+      const positioned = kind === 'text' || kind === 'image' || kind === 'icon';
+      const frame = side === 'front' && positioned ? FRONT_ART_BOX : {};
+      item = { ...item, entry: { ...item.entry!, color, ...patch, ...frame } };
       if (!save(addLayer(h.present, item, side, linked))) return;
       setSelected(item.id);
-      setTool('select');
+      if (tool !== kind) setTool('select');
       setMessage('');
     } catch (e) {
       setMessage(e instanceof Error ? e.message : '添加失败');
@@ -430,6 +471,7 @@ export default function WrapDesignStudio() {
       insert(tool === 'region' ? 'region' : 'stroke', {
         points: pts,
         dashed: tool === 'stroke' && dashed,
+        ...(tool === 'stroke' ? { thickness: 0.014 } : {}),
       });
     } catch (err) {
       setMessage(err instanceof Error ? err.message : '请重新画线');
@@ -527,7 +569,7 @@ export default function WrapDesignStudio() {
         <Link href="/" className="wrap-brand">
           MXGARAGE
         </Link>
-        <span className="wrap-file">自由贴画</span>
+        <span className="wrap-file">手绘工作台</span>
         <div className="wrap-header-actions">
           {
             <IconButton
@@ -552,14 +594,12 @@ export default function WrapDesignStudio() {
             />
           }
           <button
-            onClick={() => {
-              cancel();
-              setMode(mode === 'edit' ? 'preview' : 'edit');
-            }}
+            onClick={togglePreview}
             className="wrap-primary"
           >
             <Box size={17} />
             {mode === 'edit' ? '3D 预览' : '返回编辑'}
+            {mode === 'edit' && <ChevronRight size={15} />}
           </button>
         </div>
       </header>
@@ -582,10 +622,6 @@ export default function WrapDesignStudio() {
             <Palette />
             <span>范围</span>
           </button>
-          <button onClick={() => insert('text')}>
-            <Type />
-            <span>文字</span>
-          </button>
           <button
             aria-pressed={tool === 'stroke'}
             onClick={() => {
@@ -593,8 +629,18 @@ export default function WrapDesignStudio() {
               chooseTool('stroke');
             }}
           >
-            <PenLine />
-            <span>涂鸦</span>
+            <Highlighter />
+            <span>马克笔</span>
+          </button>
+          <button aria-expanded={toolsOpen} aria-controls="wrap-more-tools"
+            onClick={() => setToolsOpen(!toolsOpen)}>
+            <PlusCircle />
+            <span>更多工具</span>
+          </button>
+          <div className="wrap-more-tools" id="wrap-more-tools" hidden={!toolsOpen}>
+          <button onClick={() => { setMode('edit'); insert('text'); }}>
+            <Type />
+            <span>文字</span>
           </button>
           <label className="wrap-tool-upload" title="添加图片">
             <ImagePlus />
@@ -604,6 +650,7 @@ export default function WrapDesignStudio() {
               type="file"
               accept="image/png,image/jpeg,image/webp"
               onChange={(e) => {
+                setMode('edit');
                 void importFile(e.target.files?.[0], true);
                 e.target.value = '';
               }}
@@ -611,7 +658,7 @@ export default function WrapDesignStudio() {
           </label>
           <button
             aria-pressed={tool === 'pan'}
-            onClick={() => chooseTool('pan')}
+            onClick={() => { setMode('edit'); chooseTool('pan'); }}
           >
             <Hand />
             <span>平移</span>
@@ -623,23 +670,16 @@ export default function WrapDesignStudio() {
             <Layers />
             <span>图层</span>
           </button>
+          </div>
         </nav>
         <section className="wrap-stage">
           <div className="wrap-stagebar">
-            <div className="wrap-segment" aria-label="车身侧面">
-              <button
-                aria-pressed={side === 'entry'}
-                onClick={() => chooseSide('entry')}
-              >
-                入口侧
-              </button>
-              <button
-                aria-pressed={side === 'driver'}
-                onClick={() => chooseSide('driver')}
-              >
-                另一侧
-              </button>
-            </div>
+            <nav className="wrap-segment" aria-label="车身四面">
+              {WRAP_FACES.map((face) => (
+                <button key={face} aria-pressed={side === face}
+                  onClick={() => chooseSide(face)}>{faceLabels[face]}</button>
+              ))}
+            </nav>
             <span className="wrap-save-state">
               {
                 {
@@ -680,8 +720,10 @@ export default function WrapDesignStudio() {
                   <svg
                     ref={board}
                     className="wrap-canvas"
+                    data-face={side}
+                    data-tool={tool}
 
-                    aria-label={`车身贴画画布：${labels[tool]}，车头在左`}
+                    aria-label={`${faceLabels[side]}手绘画布：${labels[tool]}`}
                     preserveAspectRatio="none"
                     viewBox={`${500 - 500 / zoom + pan.x} ${200 - 200 / zoom + pan.y} ${1000 / zoom} ${400 / zoom}`}
                     onPointerDown={onDown}
@@ -722,9 +764,13 @@ export default function WrapDesignStudio() {
                       height="400"
                       preserveAspectRatio="none"
                       pointerEvents="none"
+                      style={legacySide ? { filter: 'grayscale(1)' } : undefined}
                     />
                     <g mask="url(#side-guide)">
-                      <rect width="1000" height="400" fill={project.background} />
+                      {customBackground && (
+                        <rect width="1000" height="400"
+                          fill={project.background} opacity={legacySide ? 1 : 0.78} />
+                      )}
                       {project.layers.map(
                         (l) =>
                           l[side]?.visible && (
@@ -738,7 +784,7 @@ export default function WrapDesignStudio() {
                           ),
                       )}
                     </g>
-                    {art && art.visible && (
+                    {art && art.visible && tool !== 'stroke' && tool !== 'region' && (
                       <rect
                         pointerEvents="none"
                         x={art.x * 1000}
@@ -772,8 +818,9 @@ export default function WrapDesignStudio() {
                         d={pathData(line)}
                         fill="none"
                         stroke={color}
-                        strokeWidth="3"
+                        strokeWidth="5.6"
                         strokeLinecap="round"
+                        strokeLinejoin="round"
                       />
                     )}
                   </svg>
@@ -781,7 +828,7 @@ export default function WrapDesignStudio() {
               )}
               <div className="wrap-canvas-foot">
                 <span>
-                  {legacy ? '旧版草稿 · 保留原贴画位置' : '侧面贴画展开图 · 门窗区域保留'}
+                  {legacySide ? '旧版草稿 · 保留原贴画位置' : '门窗区域保留'}
                 </span>
                 <div>
                   {
@@ -813,7 +860,7 @@ export default function WrapDesignStudio() {
               </div>
             </div>
           ) : (
-            <div className="wrap-preview">
+            <div className="wrap-preview" data-ready={previewReady}>
               <VehicleScene
                 ref={scene}
                 design={h.present}
@@ -827,13 +874,21 @@ export default function WrapDesignStudio() {
                 environment="studio"
                 onPick={(id) => setParts((p) => ({ ...p, [id]: !p[id] }))}
                 onReady={() => scene.current?.setView(side)}
+                onDesignReady={() => setPreviewReady(true)}
+                onDesignError={() => setPaperSnapshot('')}
               />
+              {paperSnapshot && (
+                <div className="wrap-paper-transition" aria-hidden="true"
+                  style={{ backgroundImage: `url("${paperSnapshot}")` }}
+                />
+              )}
               <div className="wrap-preview-views">
                 {[
                   ['entry', '入口正侧面'],
                   ['driver', '另一侧'],
                   ['hero', '立体'],
                   ['front', '正面'],
+                  ['rear', '背面'],
                 ].map(([id, label]) => (
                   <button key={id} onClick={() => scene.current?.setView(id)}>
                     {label}
@@ -853,7 +908,7 @@ export default function WrapDesignStudio() {
           )}
         </section>
         <aside className="wrap-inspector">
-          <h1>{art ? layer!.name : '设计你的车身'}</h1>
+          <h1>{art ? layer!.name : '马克笔与颜色'}</h1>
           {(tool === 'region' || tool === 'stroke') && (
             <div className="wrap-section">
               <p>
@@ -900,12 +955,12 @@ export default function WrapDesignStudio() {
             </label>
             <div className="wrap-swatches">
               {[
-                '#8aafa1',
-                '#f3eedf',
-                '#17201c',
-                '#bd7453',
-                '#faf9f4',
-                '#dfbb4d',
+                '#2d5e56',
+                '#82a397',
+                '#35322f',
+                '#ba6352',
+                '#e4bd71',
+                '#536f95',
               ].map((c) => (
                 <button
                   key={c}
@@ -918,7 +973,7 @@ export default function WrapDesignStudio() {
                 />
               ))}
             </div>
-            {art ? (
+            {isSideFace(side) && (art ? (
               <button
                 className="wrap-link-control"
                 disabled={art.locked}
@@ -940,7 +995,7 @@ export default function WrapDesignStudio() {
                 />
                 新增内容默认双侧同步
               </label>
-            )}
+            ))}
           </div>
           {art && (
             <div className="wrap-section">
@@ -1134,7 +1189,10 @@ export default function WrapDesignStudio() {
               <button
                 onClick={() =>
                   insert('region', {
-                    points: [
+                    points: side === 'front' ? [
+                      { x: .29, y: .587 }, { x: .71, y: .587 },
+                      { x: .71, y: .613 }, { x: .29, y: .613 },
+                    ] : [
                       { x: 0.3, y: 0.24 },
                       { x: 0.69, y: 0.24 },
                       { x: 0.69, y: 0.48 },
@@ -1150,8 +1208,8 @@ export default function WrapDesignStudio() {
                 onClick={() =>
                   insert('stroke', {
                     points: [
-                      { x: 0.31, y: 0.77 },
-                      { x: 0.73, y: 0.77 },
+                      { x: 0.31, y: side === 'front' ? .6 : side === 'rear' ? .67 : .77 },
+                      { x: 0.73, y: side === 'front' ? .6 : side === 'rear' ? .67 : .77 },
                     ],
                     thickness: 0.014,
                     dashed: false,
@@ -1164,8 +1222,8 @@ export default function WrapDesignStudio() {
             </div>
           </div>
           <div className={`wrap-layer-list ${layerPanel ? 'is-open' : ''}`}>
-            <h2>图层 · {project.layers.length}</h2>
-            {[...project.layers].reverse().map((l) => (
+            <h2>图层 · {faceLayers.length}</h2>
+            {[...faceLayers].reverse().map((l) => (
               <button
                 key={l.id}
                 className={l.id === selected ? 'selected' : ''}
@@ -1173,7 +1231,6 @@ export default function WrapDesignStudio() {
                   cancel();
                   setSelected(l.id);
                   setTool('select');
-                  if (!l[side]) setSide(side === 'entry' ? 'driver' : 'entry');
                 }}
               >
                 <span>
