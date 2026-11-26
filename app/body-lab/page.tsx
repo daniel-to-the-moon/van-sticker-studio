@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import * as THREE from 'three';
 import BodyConfigPanel from '@/components/studio/BodyConfigPanel';
 import { configForRegisteredModel } from '@/lib/announcement-db-data';
@@ -270,6 +271,16 @@ export default function BodyLabPage() {
             {t(lang, 'bodylab.subtitle')}
           </p>
         </div>
+        <Link
+          href="/"
+          style={{
+            marginLeft: 'auto',
+            padding: '4px 0',
+            textDecoration: 'underline',
+          }}
+        >
+          {lang === 'zh' ? '返回工作台' : 'Back to studio'}
+        </Link>
         <div style={{ display: 'flex', gap: 8 }}>
           <button type="button" onClick={() => setLang('zh')}>
             {t(lang, 'bodylab.langZh')}
