@@ -37,14 +37,14 @@ const LEGACY = {
   scale: 1,
 };
 
-test('coverage accepts a rectangle on film and rejects one crossing its edge', () => {
+void test('coverage accepts a rectangle on film and rejects one crossing its edge', () => {
   const c = measureCoverage(quad(9, 12, 0.5, 1.5), PERIOD, WINDOW);
   assert.equal(rectOnFilm(c, { s0: 9.5, s1: 11.5, h0: 0.6, h1: 1.4 }), true);
   assert.equal(rectOnFilm(c, { s0: 9.5, s1: 11.5, h0: 0.6, h1: 1.6 }), false);
   assert.equal(rectOnFilm(c, { s0: 8.5, s1: 11.5, h0: 0.6, h1: 1.4 }), false);
 });
 
-test('coverage finds a hole between two film pieces', () => {
+void test('coverage finds a hole between two film pieces', () => {
   const c = measureCoverage(
     [...quad(9, 10.5, 0.5, 1.5), ...quad(10.6, 12, 0.5, 1.5)],
     PERIOD,
@@ -54,7 +54,7 @@ test('coverage finds a hole between two film pieces', () => {
   assert.equal(rectOnFilm(c, { s0: 9.2, s1: 11.8, h0: 0.6, h1: 1.4 }), false);
 });
 
-test('coverage brings a triangle stored one period away next to the window', () => {
+void test('coverage brings a triangle stored one period away next to the window', () => {
   const shifted = quad(9, 12, 0.5, 1.5).map((t) =>
     t.map((v, i) => (i % 2 === 0 ? v + PERIOD : v)),
   );
@@ -62,7 +62,7 @@ test('coverage brings a triangle stored one period away next to the window', () 
   assert.equal(rectOnFilm(c, { s0: 9.5, s1: 11.5, h0: 0.6, h1: 1.4 }), true);
 });
 
-test('a rectangle outside the measured window is never on film', () => {
+void test('a rectangle outside the measured window is never on film', () => {
   const c = measureCoverage(quad(9, 12, 0.5, 1.5), PERIOD, {
     s0: 9.5,
     s1: 11.5,
@@ -72,7 +72,7 @@ test('a rectangle outside the measured window is never on film', () => {
   assert.equal(rectOnFilm(c, { s0: 9, s1: 11, h0: 0.6, h1: 1.4 }), false);
 });
 
-test('a default that already sits on film is kept exactly', () => {
+void test('a default that already sits on film is kept exactly', () => {
   const c = measureCoverage(quad(FACE.s0, FACE.s1, 0, 3), PERIOD, WINDOW);
   const aspect = 2.8;
   const fit = fitDecalOnFilm(LEGACY, aspect, BODY, c, FACE);
@@ -80,7 +80,7 @@ test('a default that already sits on film is kept exactly', () => {
   assert.deepEqual(fit.placement, constrainDecal(LEGACY, aspect, BODY));
 });
 
-test('a tall default is refit so the whole image lies on the band and clears the arch', () => {
+void test('a tall default is refit so the whole image lies on the band and clears the arch', () => {
   const tris = sideWithArch();
   const c = measureCoverage(tris, PERIOD, WINDOW);
   const aspect = 2098 / 749;
@@ -107,7 +107,7 @@ test('a tall default is refit so the whole image lies on the band and clears the
   );
 });
 
-test('nothing one step larger fits anywhere within reach (brute force)', () => {
+void test('nothing one step larger fits anywhere within reach (brute force)', () => {
   const c = measureCoverage(sideWithArch(), PERIOD, WINDOW);
   const aspect = 2.8;
   const fit = fitDecalOnFilm(LEGACY, aspect, BODY, c, FACE);
@@ -123,7 +123,7 @@ test('nothing one step larger fits anywhere within reach (brute force)', () => {
   assert.ok(Math.abs(fit.placement.center - LEGACY.center) <= 1 + 1e-9);
 });
 
-test('no film at all keeps the requested default and reports the miss', () => {
+void test('no film at all keeps the requested default and reports the miss', () => {
   const c = measureCoverage([], PERIOD, WINDOW);
   const aspect = 2.8;
   const fit = fitDecalOnFilm(LEGACY, aspect, BODY, c, FACE);
@@ -131,7 +131,7 @@ test('no film at all keeps the requested default and reports the miss', () => {
   assert.deepEqual(fit.placement, constrainDecal(LEGACY, aspect, BODY));
 });
 
-test('film too thin for the minimum scale reports the miss instead of stretching', () => {
+void test('film too thin for the minimum scale reports the miss instead of stretching', () => {
   const c = measureCoverage(quad(FACE.s0, FACE.s1, 1, 1.1), PERIOD, WINDOW);
   const fit = fitDecalOnFilm(LEGACY, 2.8, BODY, c, FACE);
   assert.equal(fit.fits, false);
