@@ -78,6 +78,7 @@ Browser acceptance covered selection → application, readable placement on both
 - `lib/generation.ts`: server image generation and streaming
 - `app/api/`: server-only routes
 - `.openai/hosting.json`: existing owner-private Site identity
+- [`docs/opc/blender-rv-wrap/`](docs/opc/blender-rv-wrap/README.md): project harness for one Blender camper-van wrap (prompt, acceptance, deliverables). Generic steps: [`.claude/skills/blender-rv-wrap/SKILL.md`](.claude/skills/blender-rv-wrap/SKILL.md).
 
 ## 中文摘要
 
